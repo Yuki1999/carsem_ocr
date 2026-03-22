@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>到货单智能抽取中台 - 用户使用说明</title>
+  <style>
+    :root {
+      --bg: #f4f8fc;
+      --card: #ffffff;
+      --ink: #1f3e57;
+      --muted: #4f6a7d;
+      --line: #d6e2ec;
+      --accent: #1f7aa8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--ink);
+      background: linear-gradient(160deg, #f7fbff 0%, #edf4fa 100%);
+      line-height: 1.75;
+    }
+    .wrap {
+      max-width: 980px;
+      margin: 24px auto;
+      padding: 0 16px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 20px 22px;
+      box-shadow: 0 10px 22px rgba(24, 47, 66, 0.08);
+    }
+    h1, h2, h3 { margin: 0 0 10px; color: #123b5a; }
+    h1 { font-size: 30px; margin-bottom: 16px; }
+    h2 {
+      margin-top: 22px;
+      padding-top: 10px;
+      border-top: 1px dashed var(--line);
+      font-size: 22px;
+    }
+    h3 { margin-top: 14px; font-size: 18px; }
+    p, li { color: var(--muted); }
+    ul, ol { margin: 8px 0 10px 22px; padding: 0; }
+    code {
+      background: #eef5fb;
+      border: 1px solid #d8e6f2;
+      border-radius: 6px;
+      padding: 1px 6px;
+      color: #235a80;
+      font-size: 0.92em;
+    }
+    .meta {
+      margin-top: 12px;
+      font-size: 13px;
+      color: #6a8091;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <article class="card">
+      <h1>到货单智能抽取中台 - 用户使用说明</h1>
+
+      <h2>1. 系统简介</h2>
+      <p>本系统用于对 PDF、图片、Office 单据进行自动识别，并提取结构化字段结果。核心流程为：上传文件 -> 后台提取 -> 在结果中心查看进度和结果。</p>
+
+      <h2>2. 登录后主要页面</h2>
+      <ul>
+        <li><code>模板管理</code>：维护不同厂商、单据类型的字段与规则。</li>
+        <li><code>提取工作台</code>：上传文件并发起提取任务。</li>
+        <li><code>结果中心</code>：查看后台任务进度、历史记录、识别字段和 Markdown / 文本预览。</li>
+      </ul>
+
+      <h2>3. 快速使用（推荐）</h2>
+      <ol>
+        <li>进入 <code>提取工作台</code>，选择厂商和单据类型。</li>
+        <li>上传一个文件（支持 PDF、图片、Word、PPT）。</li>
+        <li>确认提示词后点击 <code>开始提取</code>。</li>
+        <li>系统自动跳转到 <code>结果中心</code>，任务在后台执行。</li>
+        <li>任务完成后，在左侧历史记录选择最新记录查看结果。</li>
+      </ol>
+
+      <h2>4. 结果中心说明</h2>
+      <h3>4.1 任务与历史</h3>
+      <ul>
+        <li><code>刷新任务</code>：更新后台任务状态。</li>
+        <li><code>刷新历史</code>：更新历史记录列表。</li>
+        <li><code>下载 JSON</code>：下载当前选中记录的提取结果。</li>
+      </ul>
+
+      <h3>4.2 字段结果区</h3>
+      <ul>
+        <li>上半部分（字段名区域）：点击后可在预览区自动定位对应内容。</li>
+        <li>下半部分（值区域）：可直接选择文本并复制，不会触发跳转。</li>
+        <li>布局会随窗口宽度自动调整，一行可显示多个字段卡片。</li>
+      </ul>
+
+      <h3>4.3 Markdown / 文本预览</h3>
+      <ul>
+        <li>显示PDF解析与系统整理后的预览内容。</li>
+        <li>支持展开/收起，也支持全屏查看。</li>
+      </ul>
+
+      <h2>5. 扫描件方向自动修正</h2>
+      <p>系统在 解析PDF 前，会尝试自动纠正页面方向（基于 Tesseract OSD），适用于扫描件倾斜、横向、倒置等情况，尤其是“不同页方向不一致”的文档。</p>
+      <ul>
+        <li>自动修正失败时会回退原文件继续处理，不会中断任务。</li>
+        <li>若仍有个别页异常，建议先人工旋转后再上传。</li>
+      </ul>
+
+      <h2>6. 模板管理建议</h2>
+      <ul>
+        <li>字段名尽量清晰稳定（如：发票号、到货日期、净重）。</li>
+        <li>提示词建议明确 JSON 结构，减少返回波动。</li>
+        <li>对固定区域字段可使用 <code>region_rules</code> 提高稳定性。</li>
+      </ul>
+
+      <h2>7. 常见问题</h2>
+      <h3>Q1：点击开始提取后没立即出结果？</h3>
+      <p>任务为后台执行，请在结果中心查看进度，完成后再查看结果。</p>
+
+      <h3>Q2：预览有乱码或不完整？</h3>
+      <ul>
+        <li>先确认是否是扫描件质量问题（模糊、倾斜、遮挡）。</li>
+        <li>可重试一次，系统会自动做方向修正。</li>
+        <li>必要时先对原始文件做清晰化或旋转后再上传。</li>
+      </ul>
+
+      <h3>Q3：为什么历史里有多条同名文件？</h3>
+      <p>每次提取都会生成独立历史记录，便于回溯和对比。</p>
+
+      <h2>8. 操作注意事项</h2>
+      <ul>
+        <li>建议单次只上传一个文件，便于追踪任务和结果。</li>
+        <li>大文件处理时间会更长，请耐心等待任务完成。</li>
+        <li>删除历史后不可恢复，请确认后再删除。</li>
+      </ul>
+
+      <h2>9. 联系支持</h2>
+      <p>如遇持续异常，建议反馈以下信息：</p>
+      <ul>
+        <li>文件名</li>
+        <li>提取时间</li>
+        <li>结果中心历史记录 ID（如有）</li>
+        <li>异常现象截图</li>
+      </ul>
+
+      <p class="meta">说明文档文件：<code>用户使用说明.html</code></p>
+    </article>
+  </main>
+</body>
+</html>
+
