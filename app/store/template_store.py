@@ -15,6 +15,8 @@ DEFAULT_PARSE_METHOD = "auto"
 DEFAULT_LANG_LIST = "en"
 DOC_TYPES = ["到货单", "物流通知书", "送货单", "发票", "报关单"]
 PARSE_METHODS = ["auto", "txt", "ocr"]
+COMMON_TEMPLATE_VENDOR = "通用模板"
+COMMON_VENDOR_ALIASES = {"", "通用模板", "通用", "common", "default", "*", "__common__"}
 
 
 def load_templates(project_root: Path) -> list[dict[str, Any]]:
@@ -49,14 +51,16 @@ def normalize_templates(payload: Any) -> list[dict[str, Any]]:
     seen = set()
     for index, item in enumerate(raw_items, start=1):
         normalized = _normalize_template(item, index=index)
-        key = f"{normalized['vendor']}__{normalized['doc_type']}"
+        key = f"{_template_vendor_key(normalized['vendor'])}__{normalized['doc_type']}"
         if key in seen:
             continue
         seen.add(key)
         cleaned.append(normalized)
         if len(cleaned) >= MAX_TEMPLATE_ITEMS:
             break
-    return cleaned or _default_templates()
+    if cleaned and not any(item["vendor"] == COMMON_TEMPLATE_VENDOR for item in cleaned):
+        cleaned = _common_default_templates() + cleaned
+    return cleaned[:MAX_TEMPLATE_ITEMS] or _default_templates()
 
 
 def _default_templates() -> list[dict[str, Any]]:
@@ -64,7 +68,7 @@ def _default_templates() -> list[dict[str, Any]]:
         _normalize_template(
             {
                 "id": uuid.uuid4().hex,
-                "vendor": "嘉盛半导体",
+                "vendor": COMMON_TEMPLATE_VENDOR,
                 "doc_type": "到货单",
                 "llm_prompt": '请提取到货单关键信息，以 JSON 返回：{"通知书编号":"","供应商名称":"","到货日期":"","采购订单号":"","商品明细":[{}]}。如存在多项商品，请在“商品明细”数组中逐项输出，每项字段按单据原文提取且不固定；无明细返回空数组 []。',
             },
@@ -73,7 +77,7 @@ def _default_templates() -> list[dict[str, Any]]:
         _normalize_template(
             {
                 "id": uuid.uuid4().hex,
-                "vendor": "嘉盛半导体",
+                "vendor": COMMON_TEMPLATE_VENDOR,
                 "doc_type": "物流通知书",
                 "llm_prompt": '请提取物流通知书信息，以 JSON 返回：{"通知日期":"","承运商":"","车牌号":"","起运地":"","目的地":"","预计到厂时间":"","联系人":"","联系电话":"","商品明细":[{}]}。如存在多项商品，请在“商品明细”数组中逐项输出，每项字段按单据原文提取且不固定；无明细返回空数组 []。',
             },
@@ -82,7 +86,7 @@ def _default_templates() -> list[dict[str, Any]]:
         _normalize_template(
             {
                 "id": uuid.uuid4().hex,
-                "vendor": "嘉盛半导体",
+                "vendor": COMMON_TEMPLATE_VENDOR,
                 "doc_type": "送货单",
                 "llm_prompt": '请提取送货单关键信息，以 JSON 返回：{"送货单号":"","供应商代码":"","收货单位":"","送货日期":"","商品明细":[{}]}。如存在多项商品，请在“商品明细”数组中逐项输出，每项字段按单据原文提取且不固定；无明细返回空数组 []。',
             },
@@ -91,7 +95,7 @@ def _default_templates() -> list[dict[str, Any]]:
         _normalize_template(
             {
                 "id": uuid.uuid4().hex,
-                "vendor": "嘉盛半导体",
+                "vendor": COMMON_TEMPLATE_VENDOR,
                 "doc_type": "发票",
                 "llm_prompt": '请从发票文本中提取信息，以 JSON 返回：{"发票号":"","开票日期":"","价税合计":"","购买方名称":""}',
             },
@@ -100,7 +104,7 @@ def _default_templates() -> list[dict[str, Any]]:
         _normalize_template(
             {
                 "id": uuid.uuid4().hex,
-                "vendor": "嘉盛半导体",
+                "vendor": COMMON_TEMPLATE_VENDOR,
                 "doc_type": "报关单",
                 "llm_prompt": '请提取报关单关键信息，以 JSON 返回：{"报关单号":"","申报日期":"","境内收发货人":"","消费使用单位":"","贸易方式":"","商品明细":[{}]}。如存在多项商品，请在“商品明细”数组中逐项输出，每项字段按单据原文提取且不固定；无明细返回空数组 []。',
             },
@@ -145,6 +149,10 @@ def _default_templates() -> list[dict[str, Any]]:
     ]
 
 
+def _common_default_templates() -> list[dict[str, Any]]:
+    return [item for item in _default_templates() if item["vendor"] == COMMON_TEMPLATE_VENDOR]
+
+
 def _normalize_template(item: Any, index: int) -> dict[str, Any]:
     row = item if isinstance(item, dict) else {}
     doc_type = str(row.get("doc_type") or "").strip()
@@ -153,7 +161,7 @@ def _normalize_template(item: Any, index: int) -> dict[str, Any]:
     parse_method = str(row.get("parse_method") or "").strip().lower()
     if parse_method not in PARSE_METHODS:
         parse_method = DEFAULT_PARSE_METHOD
-    vendor = str(row.get("vendor") or row.get("name") or "").strip()
+    vendor = _normalize_template_vendor(row.get("vendor") or row.get("name") or "")
     customs_mapping = _normalize_customs_mapping(row.get("customs_mapping"))
     return {
         "id": str(row.get("id") or "").strip() or uuid.uuid4().hex,
@@ -166,6 +174,19 @@ def _normalize_template(item: Any, index: int) -> dict[str, Any]:
         "lang_list": str(row.get("lang_list") or "").strip() or DEFAULT_LANG_LIST,
         "customs_mapping": customs_mapping,
     }
+
+
+def _normalize_template_vendor(value: Any) -> str:
+    raw = str(value or "").strip()
+    compact = raw.lower().replace(" ", "").replace(".", "").replace("_", "").replace("-", "")
+    if raw in COMMON_VENDOR_ALIASES or compact in COMMON_VENDOR_ALIASES:
+        return COMMON_TEMPLATE_VENDOR
+    return raw
+
+
+def _template_vendor_key(value: Any) -> str:
+    normalized = _normalize_template_vendor(value)
+    return COMMON_TEMPLATE_VENDOR if normalized == COMMON_TEMPLATE_VENDOR else normalized.lower()
 
 
 def _normalize_customs_mapping(raw: Any) -> dict[str, dict[str, str]]:

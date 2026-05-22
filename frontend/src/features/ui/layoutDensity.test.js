@@ -33,4 +33,11 @@ describe('layout density CSS', () => {
     expect(appVue).toContain('class="workspace-actions"')
     expect(appVue).toContain('UserFilled')
   })
+
+  it('aligns the declaration panel with the active case instead of the lower tab area', () => {
+    expect(appVue).toContain('class="result-main-layout"')
+    expect(appVue).toContain('class="result-main-primary"')
+    expect(css).toMatch(/\.result-main-layout\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(280px,\s*300px\)/s)
+    expect(css).toMatch(/\.result-workspace-grid\s*\{[^}]*grid-template-columns:\s*1fr/s)
+  })
 })

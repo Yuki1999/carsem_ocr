@@ -619,7 +619,8 @@ def test_normalize_templates_keeps_customs_mapping():
         }
     )
 
-    assert items[0]["customs_mapping"]["header"]["主提单号"] == "Mawb"
+    target = next(item for item in items if item["vendor"] == "嘉盛半导体" and item["doc_type"] == "到货单")
+    assert target["customs_mapping"]["header"]["主提单号"] == "Mawb"
 
 
 def test_normalize_templates_accepts_customs_declaration_doc_type():
@@ -635,16 +636,39 @@ def test_normalize_templates_accepts_customs_declaration_doc_type():
         }
     )
 
-    assert items[0]["doc_type"] == "报关单"
+    target = next(item for item in items if item["vendor"] == "嘉盛半导体")
+    assert target["doc_type"] == "报关单"
 
 
 def test_normalize_templates_default_set_includes_remote_logistics_templates():
     items = normalize_templates(None)
     pairs = {(item["vendor"], item["doc_type"]) for item in items}
 
+    assert ("通用模板", "到货单") in pairs
+    assert ("通用模板", "发票") in pairs
+    assert ("通用模板", "报关单") in pairs
     assert ("UPI  Semi", "物流通知书") in pairs
     assert ("STMicroelectronics", "物流通知书") in pairs
     assert ("TI", "物流通知书") in pairs
+
+
+def test_normalize_templates_adds_common_baseline_to_legacy_vendor_only_store():
+    items = normalize_templates(
+        {
+            "items": [
+                {
+                    "vendor": "Samsung",
+                    "doc_type": "报关单",
+                    "llm_prompt": "{}",
+                }
+            ]
+        }
+    )
+    pairs = {(item["vendor"], item["doc_type"]) for item in items}
+
+    assert ("Samsung", "报关单") in pairs
+    assert ("通用模板", "到货单") in pairs
+    assert ("通用模板", "发票") in pairs
 
 
 def test_normalize_llm_settings_keeps_auto_mode_enabled():

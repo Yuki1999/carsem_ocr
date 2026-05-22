@@ -13,13 +13,18 @@ import {
 import {
   DOC_TYPES,
   FIXED_WORKSPACE_OCR_ENGINE,
+  COMMON_TEMPLATE_VENDOR,
   buildDocTypeOptionsForVendor,
   buildVendorOptions,
   chooseTemplateSelection,
   createInitialWorkspaceSelection,
   createTemplateDraftDefaults,
+  isCommonTemplateVendor,
+  normalizeTemplateVendor,
   normalizeVendorKey,
   resolveDocTypeForVendor,
+  resolveTemplateForSelection,
+  templateScopeOf,
 } from './features/settings/workspaceConfig'
 import {
   CUSTOMS_DETAIL_FIELDS,
@@ -157,6 +162,7 @@ const previewPaneModalRef = ref(null)
 const previewModalVisible = ref(false)
 const templatePickerVisible = ref(false)
 const templatePickerQuery = ref('')
+const templateScopeFilter = ref('all')
 const extractConfirmVisible = ref(false)
 const fieldDetailVisible = ref(false)
 const selectedFieldDetailRow = ref(null)
@@ -659,34 +665,76 @@ function extractSublistBlocks(field, value) {
   return blocks
 }
 
+function templateDisplayName(tpl) {
+  if (!tpl) return '未选择模板'
+  const scopeName = isCommonTemplateVendor(tpl.vendor) ? COMMON_TEMPLATE_VENDOR : String(tpl.vendor || '').trim()
+  return `${scopeName || '-'} · ${tpl.doc_type || '-'}`
+}
+
+function templateScopeLabel(tpl) {
+  return isCommonTemplateVendor(tpl?.vendor) ? '通用模板' : '厂商专属'
+}
+
+function templateScopeTagType(tpl) {
+  return isCommonTemplateVendor(tpl?.vendor) ? 'success' : 'primary'
+}
+
 const vendorOptions = computed(() => {
   return buildVendorOptions(templates.value)
 })
 const docTypeOptionsForSelectedVendor = computed(() => buildDocTypeOptionsForVendor(templates.value, selectedVendor.value))
-const activeTemplate = computed(() => {
-  const vendor = normalizeVendorKey(selectedVendor.value)
-  const docType = String(selectedDocType.value || '').trim()
-  return templates.value.find((x) => x && normalizeVendorKey(x.vendor) === vendor && x.doc_type === docType) || null
-})
+const activeTemplate = computed(() => resolveTemplateForSelection(templates.value, selectedVendor.value, selectedDocType.value))
 const templateEditorTitle = computed(() => (templateEditorMode.value === 'edit' ? '编辑模板' : '新增模板'))
 const activeTemplateFieldCount = computed(() => parsePromptFields(activeTemplate.value?.llm_prompt || '').length)
-const activeTemplateName = computed(() => (activeTemplate.value ? `${activeTemplate.value.vendor} · ${activeTemplate.value.doc_type}` : '未选择模板'))
+const activeTemplateName = computed(() => (activeTemplate.value ? templateDisplayName(activeTemplate.value) : '未选择模板'))
+const templateStats = computed(() => {
+  const common = templates.value.filter((tpl) => isCommonTemplateVendor(tpl?.vendor)).length
+  return {
+    common,
+    vendor: templates.value.length - common,
+    visible: templateBoardRows.value.length,
+  }
+})
+const templateBoardRows = computed(() => {
+  const rows = templates.value
+    .filter((tpl) => templateScopeFilter.value === 'all' || templateScopeOf(tpl) === templateScopeFilter.value)
+    .map((tpl) => ({
+      ...tpl,
+      displayName: templateDisplayName(tpl),
+      scope: templateScopeOf(tpl),
+      scopeLabel: templateScopeLabel(tpl),
+    }))
+  return rows.sort((a, b) => {
+    const scopeOrder = a.scope === b.scope ? 0 : (a.scope === 'common' ? -1 : 1)
+    if (scopeOrder) return scopeOrder
+    const docOrder = DOC_TYPES.indexOf(a.doc_type) - DOC_TYPES.indexOf(b.doc_type)
+    if (docOrder) return docOrder
+    return String(a.vendor || '').localeCompare(String(b.vendor || ''), 'zh-CN')
+  })
+})
 const templatePickerItems = computed(() => {
   const query = String(templatePickerQuery.value || '').trim().toLowerCase()
   return templates.value
     .map((tpl) => {
-      const name = `${tpl.vendor} · ${tpl.doc_type}`
+      const name = templateDisplayName(tpl)
       return {
         ...tpl,
         name,
+        scope: templateScopeOf(tpl),
+        scopeLabel: templateScopeLabel(tpl),
         fieldCount: parsePromptFields(tpl.llm_prompt).length,
         ruleCount: parseRegionRulesSafe(tpl.region_rules).length,
-        active: normalizeVendorKey(tpl.vendor) === normalizeVendorKey(selectedVendor.value) && tpl.doc_type === selectedDocType.value,
+        active: activeTemplate.value?.id === tpl.id,
       }
+    })
+    .sort((a, b) => {
+      const scopeOrder = a.scope === b.scope ? 0 : (a.scope === 'common' ? -1 : 1)
+      if (scopeOrder) return scopeOrder
+      return a.name.localeCompare(b.name, 'zh-CN')
     })
     .filter((tpl) => {
       if (!query) return true
-      return `${tpl.name} ${tpl.llm_prompt || ''}`.toLowerCase().includes(query)
+      return `${tpl.name} ${tpl.scopeLabel} ${tpl.llm_prompt || ''}`.toLowerCase().includes(query)
     })
 })
 const extractionLaunchReview = computed(() => buildExtractionLaunchReview({
@@ -957,7 +1005,6 @@ const visibleSampleRules = computed(() =>
 )
 watch([selectedVendor, selectedDocType], () => {
   if (templatesLoading.value) return
-  if (!String(selectedVendor.value || '').trim()) return
   const resolvedDocType = resolveDocTypeForVendor(
     templates.value,
     selectedVendor.value,
@@ -967,24 +1014,21 @@ watch([selectedVendor, selectedDocType], () => {
     selectedDocType.value = resolvedDocType
     return
   }
+  if (!String(selectedDocType.value || '').trim()) return
   const tpl = activeTemplate.value
   if (!tpl) {
-    pushToast(`未找到「${selectedVendor.value} - ${selectedDocType.value}」模板，请先在模板管理中创建`, 'warning', 2600)
+    const vendorLabel = String(selectedVendor.value || '').trim() || COMMON_TEMPLATE_VENDOR
+    pushToast(`未找到「${vendorLabel} - ${selectedDocType.value}」模板，请先在模板管理中创建`, 'warning', 2600)
     return
   }
   applyTemplateToForm(tpl)
 }, { immediate: true })
 
 watch(selectedVendor, (vendor) => {
-  if (!String(vendor || '').trim()) {
-    selectedDocType.value = ''
-    return
-  }
   selectedDocType.value = resolveDocTypeForVendor(templates.value, vendor, selectedDocType.value)
 }, { immediate: true })
 
 watch(docTypeOptionsForSelectedVendor, (options) => {
-  if (!String(selectedVendor.value || '').trim()) return
   if (!options.includes(selectedDocType.value)) {
     selectedDocType.value = resolveDocTypeForVendor(templates.value, selectedVendor.value, selectedDocType.value)
   }
@@ -1024,7 +1068,7 @@ function getDefaultTemplates() {
   return [
     {
       id: createId(),
-      vendor: '嘉盛半导体',
+      vendor: COMMON_TEMPLATE_VENDOR,
       doc_type: '到货单',
       llm_prompt: '请提取到货单关键信息，以 JSON 返回：{"通知书编号":"","供应商名称":"","到货日期":"","采购订单号":"","商品明细":[{}]}。如存在多项商品，请在“商品明细”数组中逐项输出，每项字段按单据原文提取且不固定；无明细返回空数组 []。',
       region_rules: '',
@@ -1035,7 +1079,7 @@ function getDefaultTemplates() {
     },
     {
       id: createId(),
-      vendor: '嘉盛半导体',
+      vendor: COMMON_TEMPLATE_VENDOR,
       doc_type: '物流通知书',
       llm_prompt: '请提取物流通知书信息，以 JSON 返回：{"通知日期":"","承运商":"","车牌号":"","起运地":"","目的地":"","预计到厂时间":"","联系人":"","联系电话":"","商品明细":[{}]}。如存在多项商品，请在“商品明细”数组中逐项输出，每项字段按单据原文提取且不固定；无明细返回空数组 []。',
       region_rules: '',
@@ -1046,7 +1090,7 @@ function getDefaultTemplates() {
     },
     {
       id: createId(),
-      vendor: '嘉盛半导体',
+      vendor: COMMON_TEMPLATE_VENDOR,
       doc_type: '送货单',
       llm_prompt: '请提取送货单关键信息，以 JSON 返回：{"送货单号":"","供应商代码":"","收货单位":"","送货日期":"","商品明细":[{}]}。如存在多项商品，请在“商品明细”数组中逐项输出，每项字段按单据原文提取且不固定；无明细返回空数组 []。',
       region_rules: '',
@@ -1057,7 +1101,7 @@ function getDefaultTemplates() {
     },
     {
       id: createId(),
-      vendor: '嘉盛半导体',
+      vendor: COMMON_TEMPLATE_VENDOR,
       doc_type: '发票',
       llm_prompt: '请从发票文本中提取信息，以 JSON 返回：{"发票号":"","开票日期":"","价税合计":"","购买方名称":""}',
       region_rules: '',
@@ -1068,7 +1112,7 @@ function getDefaultTemplates() {
     },
     {
       id: createId(),
-      vendor: '嘉盛半导体',
+      vendor: COMMON_TEMPLATE_VENDOR,
       doc_type: '报关单',
       llm_prompt: '请提取报关单关键信息，以 JSON 返回：{"报关单号":"","申报日期":"","境内收发货人":"","消费使用单位":"","贸易方式":"","商品明细":[{}]}。如存在多项商品，请在“商品明细”数组中逐项输出，每项字段按单据原文提取且不固定；无明细返回空数组 []。',
       region_rules: '',
@@ -1089,7 +1133,7 @@ function normalizeTemplateItem(item) {
     : (typeof item.name === 'string' && item.name.trim() ? item.name.trim() : '')
   return {
     id: typeof item.id === 'string' && item.id ? item.id : createId(),
-    vendor,
+    vendor: normalizeTemplateVendor(vendor),
     doc_type: docType,
     llm_prompt: sanitizeLegacyPrompt(typeof item.llm_prompt === 'string' ? item.llm_prompt : ''),
     region_rules: typeof item.region_rules === 'string' ? item.region_rules : '',
@@ -1109,7 +1153,8 @@ function loadTemplates(source = null) {
   const seen = new Set()
   const deduped = []
   for (const item of cleaned) {
-    const key = `${item.vendor}__${item.doc_type}`
+    const vendorKey = isCommonTemplateVendor(item.vendor) ? COMMON_TEMPLATE_VENDOR : normalizeVendorKey(item.vendor)
+    const key = `${vendorKey}__${item.doc_type}`
     if (seen.has(key)) continue
     seen.add(key)
     deduped.push(item)
@@ -1200,13 +1245,13 @@ function applyTemplateToForm(tpl) {
 }
 
 function selectTemplatePair(vendor, docType) {
-  selectedVendor.value = vendor
+  selectedVendor.value = isCommonTemplateVendor(vendor) ? '' : normalizeTemplateVendor(vendor)
   selectedDocType.value = docType
 }
 
 function templateRowClass({ row }) {
   if (!row) return ''
-  return normalizeVendorKey(row.vendor) === normalizeVendorKey(selectedVendor.value) && row.doc_type === selectedDocType.value ? 'is-current-template' : ''
+  return activeTemplate.value?.id === row.id ? 'is-current-template' : ''
 }
 
 async function refreshTemplateBoard() {
@@ -1227,7 +1272,7 @@ function selectTemplateFromPicker(row) {
   if (!row) return
   activateTemplateRow(row)
   templatePickerVisible.value = false
-  pushToast(`已选择模板「${row.vendor} · ${row.doc_type}」`, 'success', 1800)
+  pushToast(`已选择模板「${templateDisplayName(row)}」`, 'success', 1800)
 }
 
 function editTemplateFromPicker(row) {
@@ -1236,13 +1281,19 @@ function editTemplateFromPicker(row) {
 }
 
 function findTemplate(vendor, docType) {
-  return templates.value.find((x) => normalizeVendorKey(x.vendor) === normalizeVendorKey(vendor) && x.doc_type === docType) || null
+  const targetVendor = normalizeTemplateVendor(vendor)
+  const targetDocType = String(docType || '').trim()
+  return templates.value.find((x) => {
+    if (String(x?.doc_type || '').trim() !== targetDocType) return false
+    if (isCommonTemplateVendor(targetVendor)) return isCommonTemplateVendor(x?.vendor)
+    return !isCommonTemplateVendor(x?.vendor) && normalizeVendorKey(x.vendor) === normalizeVendorKey(targetVendor)
+  }) || null
 }
 
 function buildTemplatePayloadFromForm(vendor, docType, existingId = '') {
   return {
     id: existingId || createId(),
-    vendor,
+    vendor: normalizeTemplateVendor(vendor),
     doc_type: docType,
     llm_prompt: form.value.llm_prompt,
     region_rules: form.value.region_rules,
@@ -1300,8 +1351,10 @@ function openCreateTemplateEditor() {
   templateEditorCommitted.value = false
   templateEditorMode.value = 'create'
   editingTemplateKey.value = ''
-  templateDraft.value.vendor = ''
-  templateDraft.value.doc_type = selectedDocType.value || DOC_TYPES[0]
+  templateDraft.value = {
+    ...createTemplateDraftDefaults(DOC_TYPES),
+    doc_type: selectedDocType.value || DOC_TYPES[0],
+  }
   resetTemplateEditorState()
   templateEditorVisible.value = true
 }
@@ -1311,9 +1364,12 @@ function openEditTemplateEditor(tpl) {
   templateEditorSnapshot.value = snapshotEditorState()
   templateEditorCommitted.value = false
   templateEditorMode.value = 'edit'
-  editingTemplateKey.value = `${tpl.vendor}__${tpl.doc_type}`
-  templateDraft.value.vendor = tpl.vendor
-  templateDraft.value.doc_type = tpl.doc_type
+  editingTemplateKey.value = `${normalizeTemplateVendor(tpl.vendor)}__${tpl.doc_type}`
+  templateDraft.value = {
+    scope: templateScopeOf(tpl),
+    vendor: normalizeTemplateVendor(tpl.vendor),
+    doc_type: tpl.doc_type,
+  }
   applyTemplateToForm(tpl)
   fieldDraft.value = ''
   sampleRuleField.value = ''
@@ -1321,11 +1377,22 @@ function openEditTemplateEditor(tpl) {
   templateEditorVisible.value = true
 }
 
+function onTemplateScopeChange(scope) {
+  if (scope === 'common') {
+    templateDraft.value.vendor = COMMON_TEMPLATE_VENDOR
+    return
+  }
+  if (isCommonTemplateVendor(templateDraft.value.vendor)) {
+    templateDraft.value.vendor = selectedVendor.value || ''
+  }
+}
+
 async function saveTemplateEditor() {
-  const vendor = String(templateDraft.value.vendor || '').trim()
+  const scope = templateDraft.value.scope === 'vendor' ? 'vendor' : 'common'
+  const vendor = scope === 'common' ? COMMON_TEMPLATE_VENDOR : normalizeTemplateVendor(templateDraft.value.vendor)
   const docType = String(templateDraft.value.doc_type || '').trim()
-  if (!vendor) {
-    pushToast('厂商名称不能为空', 'warning')
+  if (scope === 'vendor' && !vendor) {
+    pushToast('厂商专属模板需要填写厂商名称', 'warning')
     return
   }
   if (!DOC_TYPES.includes(docType)) {
@@ -1334,7 +1401,7 @@ async function saveTemplateEditor() {
   }
   if (templateEditorMode.value === 'create') {
     if (findTemplate(vendor, docType)) {
-      pushToast('该厂商-类型模板已存在', 'warning')
+      pushToast('该模板范围下已存在相同单据类型', 'warning')
       return
     }
     const item = buildTemplatePayloadFromForm(vendor, docType)
@@ -1344,7 +1411,7 @@ async function saveTemplateEditor() {
     selectTemplatePair(vendor, docType)
     templateEditorCommitted.value = true
     templateEditorVisible.value = false
-    pushToast('厂商-类型模板已创建', 'success')
+    pushToast(scope === 'common' ? '通用模板已创建' : '厂商专属模板已创建', 'success')
     return
   }
   const [originVendor, originDocType] = String(editingTemplateKey.value || '__').split('__')
@@ -1355,7 +1422,7 @@ async function saveTemplateEditor() {
   }
   const conflict = findTemplate(vendor, docType)
   if (conflict && conflict !== origin) {
-    pushToast('该厂商-类型模板已存在', 'warning')
+    pushToast('该模板范围下已存在相同单据类型', 'warning')
     return
   }
   const payload = buildTemplatePayloadFromForm(vendor, docType, origin.id)
@@ -1384,8 +1451,13 @@ async function deleteTemplate(vendor, docType) {
     pushToast('至少保留一个模板', 'warning')
     return
   }
-  if (!window.confirm(`确认删除模板「${vendor} · ${docType}」吗？`)) return
-  const nextItems = templates.value.filter((x) => !(x.vendor === vendor && x.doc_type === docType))
+  const target = findTemplate(vendor, docType)
+  if (!target) {
+    pushToast('模板不存在或已被删除', 'warning')
+    return
+  }
+  if (!window.confirm(`确认删除模板「${templateDisplayName(target)}」吗？`)) return
+  const nextItems = templates.value.filter((x) => x !== target)
   const ok = await persistTemplates(nextItems)
   if (!ok) return
   pushToast('模板已删除', 'info')
@@ -2850,10 +2922,6 @@ async function submitForm() {
     pushToast('请先选择文件', 'warning')
     return
   }
-  if (!String(selectedVendor.value || '').trim()) {
-    pushToast('请先选择当前厂商', 'warning')
-    return
-  }
   if (!String(selectedDocType.value || '').trim()) {
     pushToast('请先选择当前单据类型', 'warning')
     return
@@ -2870,7 +2938,7 @@ async function submitForm() {
     fd.append('file', file.value)
     const requestFields = buildExtractRequestFields({
       ...form.value,
-      vendor: String(selectedVendor.value || '').trim(),
+      vendor: String(selectedVendor.value || activeTemplate.value?.vendor || '').trim(),
       doc_type: String(selectedDocType.value || '').trim(),
       llm_prompt: ensureSublistPromptInstruction(form.value.llm_prompt),
     })
@@ -2964,7 +3032,7 @@ onBeforeUnmount(() => {
       <el-card class="ep-side-card" shadow="never">
         <div class="ep-side-meta">
           <span>模板数 {{ templates.length }}</span>
-          <span v-if="activeTemplate">当前 {{ activeTemplate.vendor }} · {{ activeTemplate.doc_type }}</span>
+          <span v-if="activeTemplate">当前 {{ activeTemplateName }}</span>
           <!-- <span>命中 {{ hitCount }}/{{ rows.length }}</span> -->
         </div>
       </el-card>
@@ -3006,27 +3074,36 @@ onBeforeUnmount(() => {
             <div>
               <p class="section-kicker">Template Center</p>
               <h3>模板管理</h3>
-              <p>按厂商与单据类型集中维护字段、提示词与区域规则，新增模板通过弹窗编辑器完成。</p>
+              <p>先维护跨厂商可复用的通用模板，再为特殊客户资料创建厂商专属模板覆盖规则。</p>
             </div>
           </div>
 
           <el-card class="ep-card template-board" shadow="hover">
             <div class="template-toolbar">
-              <el-button type="primary" round :icon="Plus" :disabled="templatesLoading" @click="openCreateTemplateEditor">新增模板</el-button>
-              <el-button round :icon="RefreshRight" :loading="templatesLoading" @click="refreshTemplateBoard">刷新列表</el-button>
-              <el-button text class="toolbar-link" :disabled="templatesLoading" @click="resetTemplateStore">重置默认</el-button>
+              <el-radio-group v-model="templateScopeFilter" class="template-scope-tabs">
+                <el-radio-button label="all">全部</el-radio-button>
+                <el-radio-button label="common">通用模板</el-radio-button>
+                <el-radio-button label="vendor">厂商专属</el-radio-button>
+              </el-radio-group>
+              <div class="template-toolbar-actions">
+                <el-button type="primary" round :icon="Plus" :disabled="templatesLoading" @click="openCreateTemplateEditor">新增模板</el-button>
+                <el-button round :icon="RefreshRight" :loading="templatesLoading" @click="refreshTemplateBoard">刷新列表</el-button>
+                <el-button text class="toolbar-link" :disabled="templatesLoading" @click="resetTemplateStore">重置默认</el-button>
+              </div>
             </div>
 
             <div class="table-intro">
               <span>当前启用：{{ activeTemplateName }}</span>
               <div class="ep-inline-actions">
                 <el-tag type="success">字段 {{ activeTemplateFieldCount }}</el-tag>
-                <el-tag type="info">模板 {{ templates.length }}</el-tag>
+                <el-tag type="info">通用 {{ templateStats.common }}</el-tag>
+                <el-tag type="warning">专属 {{ templateStats.vendor }}</el-tag>
+                <el-tag>显示 {{ templateStats.visible }}</el-tag>
               </div>
             </div>
 
             <el-table
-              :data="templates"
+              :data="templateBoardRows"
               size="small"
               v-loading="templatesLoading"
               height="520"
@@ -3035,8 +3112,19 @@ onBeforeUnmount(() => {
               :row-class-name="templateRowClass"
               @row-click="activateTemplateRow"
             >
-              <el-table-column prop="vendor" label="模板名称" min-width="220">
-                <template #default="{ row }">{{ row.vendor }} · {{ row.doc_type }}</template>
+              <el-table-column label="范围" width="112">
+                <template #default="{ row }">
+                  <el-tag size="small" :type="templateScopeTagType(row)">{{ row.scopeLabel }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="vendor" label="模板名称" min-width="240">
+                <template #default="{ row }">
+                  <div class="template-name-cell">
+                    <strong>{{ row.displayName }}</strong>
+                    <small v-if="row.scope === 'common'">未命中厂商专属时自动使用</small>
+                    <small v-else>优先匹配该厂商资料</small>
+                  </div>
+                </template>
               </el-table-column>
               <el-table-column prop="doc_type" label="模板类型" width="120" />
               <el-table-column label="字段数" width="100">
@@ -3080,12 +3168,24 @@ onBeforeUnmount(() => {
 
             <el-form label-position="top" class="ep-form-tight template-editor-meta">
               <el-row :gutter="14">
-                <el-col :xs="24" :lg="12">
-                  <el-form-item label="厂商名称">
-                    <el-input v-model.trim="templateDraft.vendor" placeholder="必须手工选择或输入厂商" />
+                <el-col :xs="24" :lg="8">
+                  <el-form-item label="模板范围">
+                    <el-radio-group v-model="templateDraft.scope" class="template-scope-editor" @change="onTemplateScopeChange">
+                      <el-radio-button label="common">通用模板</el-radio-button>
+                      <el-radio-button label="vendor">厂商专属</el-radio-button>
+                    </el-radio-group>
                   </el-form-item>
                 </el-col>
-                <el-col :xs="24" :lg="12">
+                <el-col :xs="24" :lg="8">
+                  <el-form-item label="厂商名称">
+                    <el-input
+                      v-model.trim="templateDraft.vendor"
+                      :disabled="templateDraft.scope === 'common'"
+                      :placeholder="templateDraft.scope === 'common' ? '通用模板不绑定厂商' : '输入客户或厂商名称'"
+                    />
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :lg="8">
                   <el-form-item label="单据类型">
                     <el-select v-model="templateDraft.doc_type" class="w-full">
                       <el-option v-for="t in DOC_TYPES" :key="t" :label="t" :value="t" />
@@ -3094,7 +3194,7 @@ onBeforeUnmount(() => {
                 </el-col>
               </el-row>
               <el-row :gutter="14">
-                <el-col :xs="24" :lg="6">
+                <el-col :xs="24" :lg="12">
                   <el-form-item label="model_version">
                     <el-select v-model="form.backend" class="w-full">
                       <el-option label="vlm" value="vlm" />
@@ -3298,7 +3398,7 @@ onBeforeUnmount(() => {
                   <el-card class="panel-card" shadow="never">
                     <template #header><div class="ep-card-head">提取参数</div></template>
                     <el-form-item label="当前厂商">
-                      <el-select v-model="selectedVendor" class="w-full" clearable placeholder="必须先选择厂商">
+                      <el-select v-model="selectedVendor" class="w-full" clearable placeholder="可留空使用通用模板">
                         <el-option v-for="vendor in vendorOptions" :key="vendor" :label="vendor" :value="vendor" />
                       </el-select>
                     </el-form-item>
@@ -3306,8 +3406,7 @@ onBeforeUnmount(() => {
                       <el-select
                         v-model="selectedDocType"
                         class="w-full"
-                        :disabled="!selectedVendor"
-                        placeholder="请先选择厂商"
+                        placeholder="选择单据类型"
                       >
                         <el-option v-for="t in docTypeOptionsForSelectedVendor" :key="t" :label="t" :value="t" />
                       </el-select>
@@ -3407,7 +3506,7 @@ onBeforeUnmount(() => {
             <div v-if="templatePickerItems.length > 0" class="template-picker-grid">
               <div
                 v-for="tpl in templatePickerItems"
-                :key="`${tpl.vendor}_${tpl.doc_type}`"
+                :key="tpl.id || `${tpl.vendor}_${tpl.doc_type}`"
                 class="template-picker-card"
                 :class="{ active: tpl.active }"
                 role="button"
@@ -3417,6 +3516,7 @@ onBeforeUnmount(() => {
                 @keydown.space.prevent="selectTemplateFromPicker(tpl)"
               >
                 <span class="template-picker-state">{{ tpl.active ? '当前模板' : '可选择' }}</span>
+                <el-tag size="small" :type="templateScopeTagType(tpl)">{{ tpl.scopeLabel }}</el-tag>
                 <strong>{{ tpl.name }}</strong>
                 <p>{{ tpl.fieldCount > 0 ? `包含 ${tpl.fieldCount} 个提取字段` : '该模板暂未维护字段' }}</p>
                 <div class="template-picker-meta">
@@ -3579,6 +3679,8 @@ onBeforeUnmount(() => {
 
                 <el-empty v-if="!activeResult" description="请先上传文件或选择历史记录" />
                 <template v-else>
+                  <div class="result-main-layout">
+                    <div class="result-main-primary">
                   <div class="case-summary-band">
                     <div class="case-summary-copy">
                       <p class="case-summary-kicker">Active Case</p>
@@ -3800,7 +3902,9 @@ onBeforeUnmount(() => {
                         </template>
                       </el-card>
                         </el-tab-pane>
-                      </el-tabs>
+                                          </el-tabs>
+                                        </div>
+                                      </div>
                     </div>
 
                     <div class="workspace-secondary">

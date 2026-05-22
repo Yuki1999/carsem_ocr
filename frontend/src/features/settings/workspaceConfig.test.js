@@ -20,6 +20,7 @@ describe('workspaceConfig helpers', () => {
   it('does not inject a default vendor placeholder', () => {
     expect(buildVendorOptions([])).toEqual([])
     expect(buildVendorOptions([{ vendor: 'B' }, { vendor: 'A' }, { vendor: 'A' }])).toEqual(['A', 'B'])
+    expect(buildVendorOptions([{ vendor: '通用模板' }, { vendor: 'A' }])).toEqual(['A'])
   })
 
   it('starts extraction workspace with no vendor selected and fixed qwen engine', () => {
@@ -30,9 +31,10 @@ describe('workspaceConfig helpers', () => {
     })
   })
 
-  it('starts template draft with no vendor selected', () => {
+  it('starts template draft as a common template', () => {
     expect(createTemplateDraftDefaults(['到货单', '发票'])).toEqual({
-      vendor: '',
+      vendor: '通用模板',
+      scope: 'common',
       doc_type: '到货单',
     })
   })
@@ -63,6 +65,48 @@ describe('workspaceConfig helpers', () => {
     expect(buildDocTypeOptionsForVendor([
       { vendor: 'A', doc_type: '到货单' },
     ], '')).toEqual([])
+  })
+
+  it('uses common templates as document type fallbacks', () => {
+    const items = [
+      { vendor: '通用模板', doc_type: '发票' },
+      { vendor: 'A', doc_type: '送货单' },
+      { vendor: 'B', doc_type: '物流通知书' },
+    ]
+
+    expect(buildDocTypeOptionsForVendor(items, '')).toEqual(['发票'])
+    expect(buildDocTypeOptionsForVendor(items, 'A')).toEqual(['发票', '送货单'])
+  })
+
+  it('falls back to common templates when a vendor has no dedicated template', () => {
+    const commonInvoice = { vendor: '通用模板', doc_type: '发票' }
+    const picked = chooseTemplateSelection({
+      templates: [commonInvoice, { vendor: 'A', doc_type: '送货单' }],
+      previousVendor: 'A',
+      previousDocType: '发票',
+      keepCurrentSelection: true,
+    })
+
+    expect(picked).toEqual({
+      vendor: 'A',
+      docType: '发票',
+      matchedTemplate: commonInvoice,
+    })
+  })
+
+  it('prefers vendor-specific templates over common templates for the same document type', () => {
+    const commonInvoice = { vendor: '通用模板', doc_type: '发票' }
+    const vendorInvoice = { vendor: 'A', doc_type: '发票' }
+    const picked = chooseTemplateSelection({
+      templates: [commonInvoice, vendorInvoice],
+      previousVendor: 'A',
+      previousDocType: '发票',
+      keepCurrentSelection: true,
+    })
+
+    expect(picked.matchedTemplate).toBe(vendorInvoice)
+    expect(picked.vendor).toBe('A')
+    expect(picked.docType).toBe('发票')
   })
 
   it('matches ST vendor alias to STMicroelectronics templates', () => {
