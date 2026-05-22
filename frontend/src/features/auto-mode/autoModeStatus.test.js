@@ -3,31 +3,31 @@ import { describe, expect, it } from 'vitest'
 import { buildAutoModeStatusView } from './autoModeStatus'
 
 describe('buildAutoModeStatusView', () => {
-  it('includes task stage progress and customs submission result for active auto mode', () => {
+  it('includes task stage progress and target system submission result for active auto mode', () => {
     const view = buildAutoModeStatusView({
       taskDetail: {
         stage: 'running_customs_submit',
         progress: 97,
-        message: '正在自动填报报关系统',
+        message: '正在自动填报目标系统',
         result: {
           auto_mode_enabled: true,
           auto_mode_status: 'running',
-          auto_mode_message: '正在自动填报报关系统',
+          auto_mode_message: '正在自动填报目标系统',
         },
       },
       submissionMeta: {
         submit_status: 'running',
-        submit_message: '正在自动填报报关系统',
+        submit_message: '正在自动填报目标系统',
       },
     })
 
     expect(view.enabled).toBe(true)
     expect(view.title).toBe('自动模式运行中')
     expect(view.type).toBe('info')
-    expect(view.description).toContain('阶段：正在提交进口报关系统')
+    expect(view.description).toContain('阶段：正在提交目标业务系统')
     expect(view.description).toContain('进度：97%')
     expect(view.description).toContain('填报状态：running')
-    expect(view.description).toContain('填报信息：正在自动填报报关系统')
+    expect(view.description).toContain('填报信息：正在自动填报目标系统')
   })
 
   it('prefers final success message when auto mode has completed', () => {

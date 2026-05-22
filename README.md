@@ -1,11 +1,11 @@
-# carsem_ocr (Vite + Vue + FastAPI)
+# 通用 IDP 智能文档处理平台 (Vite + Vue + FastAPI)
 
 ## 用户文档
 - [用户使用说明](./docs/user-guide.md)
 
 ## 架构
 - `app/api/`: FastAPI 应用与路由入口
-- `app/services/`: OCR、LLM、报关提交等后端服务
+- `app/services/`: OCR、LLM、目标系统提交等后端服务
 - `app/store/`: 历史记录、模板、LLM 设置持久化
 - `app/main.py`: 兼容入口，继续暴露 `app.main:app`
 - `frontend/`: Vite + Vue 前端工程
@@ -78,7 +78,7 @@ pm2 logs carsem-ocr-frontend
 前端提取页面已增加“提示词”输入框，作为第二阶段抽取指令。
 
 ## OCR 引擎选择
-前端“提取工作台”与“模板管理”支持选择 OCR 引擎：
+前端“处理工作台”与“模板中心”支持选择 OCR 引擎：
 
 - `MinerU`：默认引擎，保持现有官方 API 流程
 - `OpenDataLoader PDF`：本地解析/混合 OCR 管道，适合部署机可安装本地依赖的场景
@@ -148,7 +148,7 @@ export LLM_API_KEY="sk-..."
 ## MinerU 官方 Token 配置
 支持两种方式配置官方 API Token：
 
-1. 在前端“高级设置 / 系统设置”中填写 `MinerU API Token`
+1. 在前端“平台设置”中填写 `MinerU API Token`
 2. 使用后端环境变量
 ```bash
 export MINERU_API_TOKEN="官网申请的token"
@@ -162,4 +162,4 @@ export MINERU_API_TOKEN="官网申请的token"
   - 本次接口响应快照（`meta.json`）
   - MinerU 解析结果压缩包（`result.zip`）
   - 解压后的文件目录（`unzipped/`）
-- 前端“结果中心”可查看历史记录、查看解压文件内容、下载压缩包。
+- 前端“审核中心”可查看历史记录、查看解压文件内容、下载压缩包。

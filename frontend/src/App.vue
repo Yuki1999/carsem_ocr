@@ -190,10 +190,10 @@ const currentNav = ref('extract')
 const extractWorkspaceTab = ref('upload')
 const resultWorkspaceTab = ref('goods')
 const NAV_ITEMS = [
-  { key: 'template', label: '模板管理', desc: '字段与规则' },
-  { key: 'extract', label: '提取工作台', desc: '上传与任务' },
-  { key: 'result', label: '结果中心', desc: '证据与草稿' },
-  { key: 'settings', label: '系统设置', desc: '模型与自动化' },
+  { key: 'template', label: '模板中心', desc: '字段与规则' },
+  { key: 'extract', label: '处理工作台', desc: '上传与抽取' },
+  { key: 'result', label: '审核中心', desc: '证据与草稿' },
+  { key: 'settings', label: '平台设置', desc: '模型与自动化' },
 ]
 const currentNavItem = computed(() => NAV_ITEMS.find((item) => item.key === currentNav.value) || NAV_ITEMS[1])
 const markdown = new MarkdownIt({
@@ -364,11 +364,11 @@ watch(customsSubmitMode, async (nextValue, previousValue) => {
   if (nextMode === prevMode) return
   const ok = await persistLlmSettings({ silent: true })
   if (ok) {
-    pushToast(`报关提交模式已切换为 ${nextMode}`, 'success', 1800)
+    pushToast(`目标系统提交模式已切换为 ${nextMode}`, 'success', 1800)
     return
   }
   customsSubmitMode.value = prevMode
-  pushToast('报关提交模式保存失败', 'error')
+  pushToast('目标系统提交模式保存失败', 'error')
 })
 
 function buildLlmSettingsPayload() {
@@ -672,7 +672,7 @@ function templateDisplayName(tpl) {
 }
 
 function templateScopeLabel(tpl) {
-  return isCommonTemplateVendor(tpl?.vendor) ? '通用模板' : '厂商专属'
+  return isCommonTemplateVendor(tpl?.vendor) ? '通用模板' : '来源专属'
 }
 
 function templateScopeTagType(tpl) {
@@ -914,16 +914,16 @@ const activeAutoModeView = computed(() => buildAutoModeStatusView({
 const activeCaseSummaryTitle = computed(() => String(activeResult.value?.filename || historyDetail.value?.filename || selectedHistorySummary.value?.filename || '当前记录'))
 const activeCaseNarrative = computed(() => {
   if (activeAutoModeEnabled.value && activeAutoModeStatus.value === 'succeeded') {
-    return activeAutoModeMessage.value || '自动流水线已完成，这条记录已经过字段映射并提交报关系统。'
+    return activeAutoModeMessage.value || '自动流水线已完成，这条记录已经过字段映射并提交目标业务系统。'
   }
   if (activeAutoModeEnabled.value && activeAutoModeStatus.value === 'failed') {
     return activeAutoModeMessage.value || '自动流水线已中断，请检查草稿并人工接管。'
   }
   if (submissionDraftSummary.value.submitStatus === 'succeeded') {
-    return submissionDraftSummary.value.submitMessage || '报关填报已成功提交。'
+    return submissionDraftSummary.value.submitMessage || '业务填报已成功提交。'
   }
   if (submissionDraftSummary.value.detailCount > 0) {
-    return '系统已整理出报关草稿，建议先核对关键字段，再执行填报。'
+    return '系统已整理出业务填报草稿，建议先核对关键字段，再执行填报。'
   }
   return '当前记录已完成识别，可以先核对提取结果和原始证据，再生成填报草稿。'
 })
@@ -1018,7 +1018,7 @@ watch([selectedVendor, selectedDocType], () => {
   const tpl = activeTemplate.value
   if (!tpl) {
     const vendorLabel = String(selectedVendor.value || '').trim() || COMMON_TEMPLATE_VENDOR
-    pushToast(`未找到「${vendorLabel} - ${selectedDocType.value}」模板，请先在模板管理中创建`, 'warning', 2600)
+    pushToast(`未找到「${vendorLabel} - ${selectedDocType.value}」模板，请先在模板中心创建`, 'warning', 2600)
     return
   }
   applyTemplateToForm(tpl)
@@ -1392,16 +1392,16 @@ async function saveTemplateEditor() {
   const vendor = scope === 'common' ? COMMON_TEMPLATE_VENDOR : normalizeTemplateVendor(templateDraft.value.vendor)
   const docType = String(templateDraft.value.doc_type || '').trim()
   if (scope === 'vendor' && !vendor) {
-    pushToast('厂商专属模板需要填写厂商名称', 'warning')
+    pushToast('来源专属模板需要填写来源名称', 'warning')
     return
   }
   if (!DOC_TYPES.includes(docType)) {
-    pushToast('请选择有效的单据类型', 'warning')
+    pushToast('请选择有效的文档类型', 'warning')
     return
   }
   if (templateEditorMode.value === 'create') {
     if (findTemplate(vendor, docType)) {
-      pushToast('该模板范围下已存在相同单据类型', 'warning')
+      pushToast('该模板范围下已存在相同文档类型', 'warning')
       return
     }
     const item = buildTemplatePayloadFromForm(vendor, docType)
@@ -1411,7 +1411,7 @@ async function saveTemplateEditor() {
     selectTemplatePair(vendor, docType)
     templateEditorCommitted.value = true
     templateEditorVisible.value = false
-    pushToast(scope === 'common' ? '通用模板已创建' : '厂商专属模板已创建', 'success')
+    pushToast(scope === 'common' ? '通用模板已创建' : '来源专属模板已创建', 'success')
     return
   }
   const [originVendor, originDocType] = String(editingTemplateKey.value || '__').split('__')
@@ -1422,7 +1422,7 @@ async function saveTemplateEditor() {
   }
   const conflict = findTemplate(vendor, docType)
   if (conflict && conflict !== origin) {
-    pushToast('该模板范围下已存在相同单据类型', 'warning')
+    pushToast('该模板范围下已存在相同文档类型', 'warning')
     return
   }
   const payload = buildTemplatePayloadFromForm(vendor, docType, origin.id)
@@ -1503,17 +1503,17 @@ function pushToast(message, type = 'info', ttl = 3500) {
 async function refreshCurrentWorkspace() {
   if (currentNav.value === 'result') {
     await Promise.all([loadTaskList(true), loadHistoryList(false)])
-    pushToast('结果中心已刷新', 'success', 1800)
+    pushToast('审核中心已刷新', 'success', 1800)
     return
   }
   if (currentNav.value === 'settings') {
     await loadLlmSettingsFromServer()
-    pushToast('系统设置已刷新', 'success', 1800)
+    pushToast('平台设置已刷新', 'success', 1800)
     return
   }
   if (currentNav.value === 'extract') {
     await Promise.all([loadTaskList(true), loadTemplatesFromServer(false)])
-    pushToast('提取工作台已刷新', 'success', 1800)
+    pushToast('处理工作台已刷新', 'success', 1800)
     return
   }
   await loadTemplatesFromServer(false)
@@ -2379,7 +2379,7 @@ async function pollTask(taskId, silent = false) {
           pushToast('已自动降级到 pipeline（MinerU高精度引擎异常）', 'warning', 6000)
         }
         if (detail?.result?.auto_mode_enabled) pushToast(detail?.result?.auto_mode_message || '自动模式执行完成', 'success', 5000)
-        else pushToast('提取完成，可在结果中心查看', 'success')
+        else pushToast('提取完成，可在审核中心查看', 'success')
         activeTaskNotifiedDone.value = true
       }
       stopTaskPolling()
@@ -2546,7 +2546,7 @@ async function generateSubmissionDraft() {
     if (!resp.ok) throw new Error(data.detail || `生成填报草稿失败 ${resp.status}`)
     submissionDraft.value = normalizeSubmissionDraft(data.submission)
     syncSubmissionDraftIntoHistory(historyDetail.value, data.submission)
-    pushToast('已生成报关填报草稿', 'success')
+    pushToast('已生成业务填报草稿', 'success')
   } catch (err) {
     pushToast(err.message || '生成填报草稿失败', 'error')
   } finally {
@@ -2585,25 +2585,25 @@ async function pollCustomsSubmitTask(taskId, silent = false) {
   try {
     const resp = await fetch(`/api/customs-submit/tasks/${encodeURIComponent(taskId)}`)
     const data = await resp.json().catch(() => ({}))
-    if (!resp.ok) throw new Error(data.detail || `查询报关提交任务失败 ${resp.status}`)
+    if (!resp.ok) throw new Error(data.detail || `查询目标系统提交任务失败 ${resp.status}`)
     customsSubmitTaskId.value = data.id || taskId
     if (String(data.status || '').toLowerCase() === 'succeeded') {
       customsSubmitting.value = false
       stopCustomsSubmitPolling()
       if (selectedHistoryId.value) await openHistory(selectedHistoryId.value)
-      pushToast(data.message || '报关填报成功', 'success', 5000)
+      pushToast(data.message || '业务填报成功', 'success', 5000)
       return
     }
     if (String(data.status || '').toLowerCase() === 'failed') {
       customsSubmitting.value = false
       stopCustomsSubmitPolling()
       if (selectedHistoryId.value) await openHistory(selectedHistoryId.value)
-      pushToast(data.error || data.message || '报关填报失败', 'error', 5000)
+      pushToast(data.error || data.message || '业务填报失败', 'error', 5000)
     }
   } catch (err) {
     customsSubmitting.value = false
     stopCustomsSubmitPolling()
-    if (!silent) pushToast(err.message || '查询报关提交任务失败', 'error')
+    if (!silent) pushToast(err.message || '查询目标系统提交任务失败', 'error')
   }
 }
 
@@ -2620,17 +2620,17 @@ async function submitSubmissionDraft() {
       method: 'POST',
     })
     const data = await resp.json().catch(() => ({}))
-    if (!resp.ok) throw new Error(data.detail || `提交报关系统失败 ${resp.status}`)
+    if (!resp.ok) throw new Error(data.detail || `提交目标业务系统失败 ${resp.status}`)
     customsSubmitTaskId.value = data.task_id || ''
     stopCustomsSubmitPolling()
     customsSubmitPollTimer = window.setInterval(() => {
       pollCustomsSubmitTask(customsSubmitTaskId.value, true)
     }, 1800)
     await pollCustomsSubmitTask(customsSubmitTaskId.value, true)
-    pushToast('已开始执行报关填报', 'success')
+    pushToast('已开始执行业务填报', 'success')
   } catch (err) {
     customsSubmitting.value = false
-    pushToast(err.message || '提交报关系统失败', 'error')
+    pushToast(err.message || '提交目标业务系统失败', 'error')
   }
 }
 
@@ -2923,7 +2923,7 @@ async function submitForm() {
     return
   }
   if (!String(selectedDocType.value || '').trim()) {
-    pushToast('请先选择当前单据类型', 'warning')
+    pushToast('请先选择当前文档类型', 'warning')
     return
   }
   if (!form.value.llm_prompt.trim()) {
@@ -2968,7 +2968,7 @@ async function submitForm() {
       pollTask(activeTaskId.value, true)
       loadTaskList(true)
     }, 2200)
-    pushToast('任务已提交，正在后台提取，请在结果中心查看进度', 'success')
+    pushToast('任务已提交，正在后台提取，请在审核中心查看进度', 'success')
   } catch (err) {
     pushToast(err.message || '提取失败', 'error', 5000)
   } finally {
@@ -3012,8 +3012,8 @@ onBeforeUnmount(() => {
   <el-container class="ep-shell">
     <el-aside width="248px" class="ep-aside">
       <div class="ep-brand">
-        <p class="ep-brand-en">CARSEM SEMICONDUCTOR</p>
-        <h1>物流单智能抽取</h1>
+        <p class="ep-brand-en">UNIVERSAL IDP PLATFORM</p>
+        <h1>通用 IDP 平台</h1>
         <!-- <p class="ep-brand-sub">Element Plus Workspace</p> -->
       </div>
 
@@ -3073,8 +3073,8 @@ onBeforeUnmount(() => {
           <div class="section-hero">
             <div>
               <p class="section-kicker">Template Center</p>
-              <h3>模板管理</h3>
-              <p>先维护跨厂商可复用的通用模板，再为特殊客户资料创建厂商专属模板覆盖规则。</p>
+              <h3>模板中心</h3>
+              <p>先维护跨来源可复用的通用模板，再为特殊客户、厂商或业务来源创建专属模板覆盖规则。</p>
             </div>
           </div>
 
@@ -3083,7 +3083,7 @@ onBeforeUnmount(() => {
               <el-radio-group v-model="templateScopeFilter" class="template-scope-tabs">
                 <el-radio-button label="all">全部</el-radio-button>
                 <el-radio-button label="common">通用模板</el-radio-button>
-                <el-radio-button label="vendor">厂商专属</el-radio-button>
+                <el-radio-button label="vendor">来源专属</el-radio-button>
               </el-radio-group>
               <div class="template-toolbar-actions">
                 <el-button type="primary" round :icon="Plus" :disabled="templatesLoading" @click="openCreateTemplateEditor">新增模板</el-button>
@@ -3121,8 +3121,8 @@ onBeforeUnmount(() => {
                 <template #default="{ row }">
                   <div class="template-name-cell">
                     <strong>{{ row.displayName }}</strong>
-                    <small v-if="row.scope === 'common'">未命中厂商专属时自动使用</small>
-                    <small v-else>优先匹配该厂商资料</small>
+                    <small v-if="row.scope === 'common'">未命中来源专属时自动使用</small>
+                    <small v-else>优先匹配该来源资料</small>
                   </div>
                 </template>
               </el-table-column>
@@ -3172,21 +3172,21 @@ onBeforeUnmount(() => {
                   <el-form-item label="模板范围">
                     <el-radio-group v-model="templateDraft.scope" class="template-scope-editor" @change="onTemplateScopeChange">
                       <el-radio-button label="common">通用模板</el-radio-button>
-                      <el-radio-button label="vendor">厂商专属</el-radio-button>
+                      <el-radio-button label="vendor">来源专属</el-radio-button>
                     </el-radio-group>
                   </el-form-item>
                 </el-col>
                 <el-col :xs="24" :lg="8">
-                  <el-form-item label="厂商名称">
+                  <el-form-item label="来源名称">
                     <el-input
                       v-model.trim="templateDraft.vendor"
                       :disabled="templateDraft.scope === 'common'"
-                      :placeholder="templateDraft.scope === 'common' ? '通用模板不绑定厂商' : '输入客户或厂商名称'"
+                      :placeholder="templateDraft.scope === 'common' ? '通用模板不绑定来源' : '输入客户、厂商或业务来源名称'"
                     />
                   </el-form-item>
                 </el-col>
                 <el-col :xs="24" :lg="8">
-                  <el-form-item label="单据类型">
+                  <el-form-item label="文档类型">
                     <el-select v-model="templateDraft.doc_type" class="w-full">
                       <el-option v-for="t in DOC_TYPES" :key="t" :label="t" :value="t" />
                     </el-select>
@@ -3353,8 +3353,8 @@ onBeforeUnmount(() => {
           <div class="section-hero">
             <div>
               <p class="section-kicker">Extraction Workspace</p>
-              <h3>提取工作台</h3>
-              <p>按模板上传文件并发起新任务。这里负责启动工作，不承担结果分析。</p>
+              <h3>处理工作台</h3>
+              <p>按模板上传文档并发起新任务。这里负责启动抽取，不承担结果审核。</p>
             </div>
             <div class="section-hero-metrics">
               <span class="metric-chip">模板: {{ activeTemplateName }}</span>
@@ -3367,7 +3367,7 @@ onBeforeUnmount(() => {
           <el-card class="ep-card" shadow="hover">
             <template #header>
               <div class="ep-card-head spread">
-                <span>提取工作台</span>
+                <span>处理工作台</span>
                 <el-tag type="success">当前模板字段 {{ activeTemplateFieldCount }} 项</el-tag>
               </div>
             </template>
@@ -3380,7 +3380,7 @@ onBeforeUnmount(() => {
             />
             <el-alert
               class="top-gap-xs"
-              :title="autoModeEnabled ? '当前为自动模式：新任务会继续执行字段映射和自动填报。' : '当前为人工模式：新任务只执行识别，后续由你在结果中心决定是否填报。'"
+              :title="autoModeEnabled ? '当前为自动模式：新任务会继续执行字段映射和目标系统提交。' : '当前为人工模式：新任务只执行识别，后续由你在审核中心决定是否填报。'"
               :type="autoModeEnabled ? 'success' : 'warning'"
               :closable="false"
               show-icon
@@ -3397,16 +3397,16 @@ onBeforeUnmount(() => {
                 <el-col :xs="24" :xl="8">
                   <el-card class="panel-card" shadow="never">
                     <template #header><div class="ep-card-head">提取参数</div></template>
-                    <el-form-item label="当前厂商">
+                    <el-form-item label="当前来源">
                       <el-select v-model="selectedVendor" class="w-full" clearable placeholder="可留空使用通用模板">
                         <el-option v-for="vendor in vendorOptions" :key="vendor" :label="vendor" :value="vendor" />
                       </el-select>
                     </el-form-item>
-                    <el-form-item label="当前单据类型">
+                    <el-form-item label="当前文档类型">
                       <el-select
                         v-model="selectedDocType"
                         class="w-full"
-                        placeholder="选择单据类型"
+                        placeholder="选择文档类型"
                       >
                         <el-option v-for="t in docTypeOptionsForSelectedVendor" :key="t" :label="t" :value="t" />
                       </el-select>
@@ -3417,7 +3417,7 @@ onBeforeUnmount(() => {
                       <el-tag type="info">lang_list: {{ form.lang_list || '-' }}</el-tag>
                     </div>
                     <el-button type="primary" plain class="w-full" @click="openTemplatePicker">选择模板</el-button>
-                    <el-button plain class="w-full top-gap-xs" @click="currentNav = 'template'">前往模板管理</el-button>
+                    <el-button plain class="w-full top-gap-xs" @click="currentNav = 'template'">前往模板中心</el-button>
                   </el-card>
                 </el-col>
 
@@ -3456,7 +3456,7 @@ onBeforeUnmount(() => {
                             v-model="form.llm_prompt"
                             type="textarea"
                             :rows="12"
-                            placeholder="例如：请从物流通知书 Markdown 文本中提取 物流单号、承运商、预计到厂时间、联系人，并返回 JSON 对象。"
+                            placeholder="例如：请从文档 Markdown 文本中提取编号、日期、主体、金额，并返回 JSON 对象。"
                           />
                         </el-form-item>
                       </el-tab-pane>
@@ -3490,8 +3490,8 @@ onBeforeUnmount(() => {
             <div class="layer-dialog-intro">
               <div>
                 <p class="section-kicker">Template Picker</p>
-                <h4>选择本次文件要使用的模板</h4>
-                <p>优先选择和客户资料、单据类型一致的模板。选择后会同步提示词、字段和区域规则。</p>
+                <h4>选择本次文档要使用的模板</h4>
+                <p>优先选择和业务来源、文档类型一致的模板。选择后会同步提示词、字段和区域规则。</p>
               </div>
               <el-tag type="info">模板 {{ templates.length }}</el-tag>
             </div>
@@ -3500,7 +3500,7 @@ onBeforeUnmount(() => {
               v-model="templatePickerQuery"
               class="template-picker-search"
               clearable
-              placeholder="搜索厂商、单据类型或提示词"
+              placeholder="搜索来源、文档类型或提示词"
             />
 
             <div v-if="templatePickerItems.length > 0" class="template-picker-grid">
@@ -3531,7 +3531,7 @@ onBeforeUnmount(() => {
             <template #footer>
               <div class="ep-inline-actions">
                 <el-button @click="templatePickerVisible = false">关闭</el-button>
-                <el-button type="primary" plain @click="templatePickerVisible = false; currentNav = 'template'">前往模板管理</el-button>
+                <el-button type="primary" plain @click="templatePickerVisible = false; currentNav = 'template'">前往模板中心</el-button>
               </div>
             </template>
           </el-dialog>
@@ -3589,8 +3589,8 @@ onBeforeUnmount(() => {
           <div class="section-hero">
             <div>
               <p class="section-kicker">Result Center</p>
-              <h3>结果中心</h3>
-              <p>围绕当前记录查看系统判断、核对原始证据，并决定是否进入报关填报。</p>
+              <h3>审核中心</h3>
+              <p>围绕当前记录查看系统判断、核对原始证据，并决定是否进入业务填报。</p>
             </div>
           </div>
 
@@ -3688,7 +3688,7 @@ onBeforeUnmount(() => {
                       <p>{{ activeCaseNarrative }}</p>
                     </div>
                     <div class="case-summary-metrics">
-                      <span class="case-pill">厂商 {{ activeResultVendor }}</span>
+                      <span class="case-pill">来源 {{ activeResultVendor }}</span>
                       <span class="case-pill">类型 {{ activeResultDocType }}</span>
                       <span class="case-pill">模板 {{ activeResultTemplateName }}</span>
                       <span class="case-pill">模型 {{ activeResult.model_version || activeResult.backend || '-' }}</span>
@@ -3700,7 +3700,7 @@ onBeforeUnmount(() => {
                   </div>
 
                   <el-descriptions :column="resultDescColumns" border size="small" class="result-desc">
-                    <el-descriptions-item label="厂商">{{ activeResultVendor }}</el-descriptions-item>
+                    <el-descriptions-item label="来源">{{ activeResultVendor }}</el-descriptions-item>
                     <el-descriptions-item label="类型">{{ activeResultDocType }}</el-descriptions-item>
                     <el-descriptions-item label="模型">{{ activeResult.model_version || activeResult.backend || '-' }}</el-descriptions-item>
                     <el-descriptions-item label="方法">{{ activeResult.parse_method || '-' }}</el-descriptions-item>
@@ -3911,7 +3911,7 @@ onBeforeUnmount(() => {
                       <el-card shadow="never" class="workspace-panel submission-panel">
                         <template #header>
                           <div class="ep-card-head spread">
-                            <span>报关填报工作区</span>
+                            <span>业务填报工作区</span>
                             <div class="ep-inline-actions">
                               <el-tag :type="submissionDraftSummary.hasReviewWarnings ? 'warning' : 'success'">
                                 缺失 {{ submissionDraftSummary.missingCount }}
@@ -3925,7 +3925,7 @@ onBeforeUnmount(() => {
                         </template>
 
                         <div class="submission-intro">
-                          <p>这里负责把 OCR 结果整理成可提交草稿，并保留最后一次报关返回结果。</p>
+                          <p>这里负责把识别结果整理成可提交草稿，并保留最后一次目标系统返回结果。</p>
                         </div>
 
                         <div class="ep-inline-actions submission-actions">
@@ -4092,7 +4092,7 @@ onBeforeUnmount(() => {
           <div class="section-hero">
             <div>
               <p class="section-kicker">System Settings</p>
-              <h3>系统设置</h3>
+              <h3>平台设置</h3>
               <p>这里维护长期配置与系统运行姿态，不承载任务期的临时决策。</p>
             </div>
             <div class="section-hero-metrics">
@@ -4231,8 +4231,8 @@ onBeforeUnmount(() => {
 
                   <div class="auto-mode-panel-body">
                     <div class="auto-mode-copy">
-                      <p class="auto-mode-title">上传后自动执行提取、字段映射和报关填报</p>
-                      <p class="auto-mode-desc">开启后，新任务会在后台自动串行执行 OCR 提取、LLM 报关草稿生成和自动填报。即使草稿存在缺字段，也会继续尝试提交，并把网站返回结果写回结果中心。</p>
+                      <p class="auto-mode-title">上传后自动执行提取、字段映射和业务填报</p>
+                      <p class="auto-mode-desc">开启后，新任务会在后台自动串行执行 OCR 提取、LLM 填报草稿生成和自动提交。即使草稿存在缺字段，也会继续尝试提交，并把目标系统返回结果写回审核中心。</p>
                       <div class="auto-mode-flow">
                         <span>提取</span>
                         <i />
@@ -4249,12 +4249,12 @@ onBeforeUnmount(() => {
                     </div>
 
                     <div class="auto-mode-toggle-card">
-                      <span class="auto-mode-toggle-label">报关提交模式</span>
+                      <span class="auto-mode-toggle-label">目标系统提交模式</span>
                       <el-select v-model="customsSubmitMode" class="w-full" :disabled="llmSettingsLoading">
                         <el-option label="HTTP" value="http" />
                         <el-option label="Playwright" value="playwright" />
                       </el-select>
-                      <span class="auto-mode-toggle-tip">手工提交和自动模式会共用同一个报关提交引擎。</span>
+                      <span class="auto-mode-toggle-tip">手工提交和自动模式会共用同一个目标系统提交引擎。</span>
                     </div>
                   </div>
                 </div>
@@ -4279,7 +4279,7 @@ onBeforeUnmount(() => {
                 />
                 <!-- <el-alert
                   class="top-gap"
-                  title="LLM 设置保存在后端 output/settings/llm_settings.json，不会写入模板。MinerU 参数仍在模板管理维护。"
+                  title="LLM 设置保存在后端 output/settings/llm_settings.json，不会写入模板。MinerU 参数仍在模板中心维护。"
                   type="warning"
                   :closable="false"
                   show-icon

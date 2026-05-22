@@ -6,7 +6,7 @@ const STAGE_LABELS = {
   running_rotate_retry: '正在尝试旋转重试',
   saving_history: '正在保存识别结果',
   running_submission_mapping: '正在生成填报草稿',
-  running_customs_submit: '正在提交进口报关系统',
+  running_customs_submit: '正在提交目标业务系统',
   done: '已完成',
   failed: '已失败',
 }

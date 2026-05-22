@@ -57,7 +57,7 @@ export function buildExtractionLaunchReview(options = {}) {
       key: 'mode',
       title: '运行模式',
       status: autoModeEnabled ? 'warning' : 'info',
-      description: autoModeEnabled ? '自动模式会继续生成草稿并尝试填报' : '人工模式会停在结果中心等待复核',
+      description: autoModeEnabled ? '自动模式会继续生成草稿并尝试提交目标系统' : '人工模式会停在审核中心等待复核',
     },
   ]
   const blockerCount = items.filter((item) => ['file', 'template', 'prompt'].includes(item.key) && item.status !== 'success').length
