@@ -3049,7 +3049,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="workspace-topbar-right">
-            <div class="workspace-context">
+            <div class="workspace-context enterprise-status-strip">
               <span class="context-item">模板 <strong>{{ activeTemplateName }}</strong></span>
               <span class="context-item">模式 <strong>{{ workspaceModeLabel }}</strong></span>
               <span class="context-item" :class="{ warning: submissionDraftSummary.hasReviewWarnings }">状态 <strong>{{ workspaceReviewLabel }}</strong></span>

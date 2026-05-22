@@ -40,4 +40,13 @@ describe('layout density CSS', () => {
     expect(css).toMatch(/\.result-main-layout\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(280px,\s*300px\)/s)
     expect(css).toMatch(/\.result-workspace-grid\s*\{[^}]*grid-template-columns:\s*1fr/s)
   })
+
+  it('uses a restrained enterprise visual system instead of decorative marketing surfaces', () => {
+    expect(css).toContain('--surface-1:')
+    expect(css).toContain('--surface-2:')
+    expect(css).toContain('--control-height:')
+    expect(css).toContain('.enterprise-status-strip')
+    expect(css).not.toContain('Noto Serif SC')
+    expect(css).not.toContain('radial-gradient')
+  })
 })
