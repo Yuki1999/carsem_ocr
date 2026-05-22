@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import { ElMessage } from 'element-plus'
-import { Bell, Download, FullScreen, UploadFilled, Plus, RefreshRight, UserFilled } from '@element-plus/icons-vue'
+import { Download, FullScreen, UploadFilled, Plus, RefreshRight, UserFilled } from '@element-plus/icons-vue'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import {
@@ -172,6 +172,9 @@ const templatePickerVisible = ref(false)
 const templatePickerQuery = ref('')
 const templateScopeFilter = ref('all')
 const extractConfirmVisible = ref(false)
+const platformInsightsDialogVisible = ref(false)
+const uploadWizardVisible = ref(false)
+const uploadWizardStep = ref(0)
 const fieldDetailVisible = ref(false)
 const selectedFieldDetailRow = ref(null)
 const submissionExtraFieldsVisible = ref(false)
@@ -194,17 +197,21 @@ const draftRule = ref(null)
 const ruleDrawStart = ref(null)
 let samplePdfDoc = null
 let taskPollTimer = null
-const currentNav = ref('overview')
+const currentNav = ref('extract')
 const extractWorkspaceTab = ref('upload')
 const resultWorkspaceTab = ref('goods')
-const NAV_ITEMS = [
-  { key: 'overview', label: '运营台', desc: '平台概览' },
-  { key: 'template', label: '模板中心', desc: '字段与规则' },
-  { key: 'extract', label: '处理工作台', desc: '上传与抽取' },
-  { key: 'result', label: '审核中心', desc: '证据与草稿' },
-  { key: 'settings', label: '平台设置', desc: '模型与自动化' },
+const uploadWizardSteps = [
+  { title: '选择模板', desc: '确认来源和文档类型' },
+  { title: '上传资料', desc: '导入本次要识别的文件' },
+  { title: '启动任务', desc: '检查后进入后台处理' },
 ]
-const currentNavItem = computed(() => NAV_ITEMS.find((item) => item.key === currentNav.value) || NAV_ITEMS[1])
+const NAV_ITEMS = [
+  { key: 'extract', label: '工作台', desc: '上传与处理' },
+  { key: 'result', label: '审核', desc: '证据与草稿' },
+  { key: 'template', label: '模板', desc: '字段与规则' },
+  { key: 'settings', label: '设置', desc: '模型与自动化' },
+]
+const currentNavItem = computed(() => NAV_ITEMS.find((item) => item.key === currentNav.value) || NAV_ITEMS[0])
 const markdown = new MarkdownIt({
   html: true,
   linkify: true,
@@ -885,7 +892,7 @@ const platformInsights = computed(() => platformInsightsSource.value || buildFal
   activeModel: form.value.llm_model || activeLlmConfig.value?.llm_model || '',
 }))
 const platformInsightCards = computed(() => buildInsightCards(platformInsights.value))
-const cockpitFlow = computed(() => {
+const platformFlow = computed(() => {
   const data = platformInsights.value
   const activeQueue = data.queue.queued + data.queue.running
   const reviewLoad = data.review.missing_fields + data.review.review_items
@@ -916,13 +923,21 @@ const cockpitFlow = computed(() => {
     },
   ]
 })
-const cockpitTemplateCoverage = computed(() => {
+const platformTemplateCoverage = computed(() => {
   const data = platformInsights.value
   return [
     { label: '通用模板', value: data.templates.common },
     { label: '来源专属', value: data.templates.vendor },
     { label: '文档类型', value: data.templates.doc_types.length },
   ]
+})
+const focusQueueItems = computed(() => taskItems.value.slice(0, 3))
+const focusRecentHistory = computed(() => historyItems.value.slice(0, 4))
+const focusReadyLabel = computed(() => {
+  if (submitting.value) return '正在提交'
+  if (file.value) return '待启动'
+  if (taskItems.value.some((x) => ['queued', 'running'].includes(String(x?.status || '').toLowerCase()))) return '处理中'
+  return '待上传'
 })
 const submissionPacketMeta = computed(() => {
   const packet = submissionDraft.value?.meta?.packet
@@ -1326,6 +1341,11 @@ function openTemplatePicker() {
   templatePickerVisible.value = true
 }
 
+function openUploadWizard(step = 0) {
+  uploadWizardStep.value = Math.max(0, Math.min(uploadWizardSteps.length - 1, Number(step) || 0))
+  uploadWizardVisible.value = true
+}
+
 function selectTemplateFromPicker(row) {
   if (!row) return
   activateTemplateRow(row)
@@ -1582,15 +1602,6 @@ async function loadPlatformInsightsFromServer(silent = true) {
 }
 
 async function refreshCurrentWorkspace() {
-  if (currentNav.value === 'overview') {
-    await Promise.all([
-      loadPlatformInsightsFromServer(false),
-      loadTaskList(true),
-      loadHistoryList(false),
-      loadTemplatesFromServer(false),
-    ])
-    return
-  }
   if (currentNav.value === 'result') {
     await Promise.all([loadTaskList(true), loadHistoryList(false), loadPlatformInsightsFromServer(true)])
     pushToast('审核中心已刷新', 'success', 1800)
@@ -1610,8 +1621,9 @@ async function refreshCurrentWorkspace() {
   pushToast('模板中心已刷新', 'success', 1800)
 }
 
-function showNotificationHint() {
-  pushToast('暂无新的系统通知', 'info', 1800)
+function openPlatformInsightsDialog() {
+  platformInsightsDialogVisible.value = true
+  loadPlatformInsightsFromServer(false)
 }
 
 function humanFileSize(bytes) {
@@ -1657,6 +1669,7 @@ function onExtractUploadChange(uploadFile) {
   const raw = uploadFile?.raw || null
   if (!raw) return
   file.value = raw
+  uploadWizardStep.value = 2
 }
 
 function onDrop(event) {
@@ -1671,6 +1684,7 @@ function onDrop(event) {
 
 function removeFile() {
   file.value = null
+  uploadWizardStep.value = 1
   if (fileInput.value) fileInput.value.value = ''
 }
 
@@ -2998,6 +3012,8 @@ function inferFieldsForLegacyBackend(promptText) {
 }
 
 function openExtractConfirmDialog() {
+  uploadWizardStep.value = 2
+  uploadWizardVisible.value = false
   extractConfirmVisible.value = true
 }
 
@@ -3007,6 +3023,7 @@ async function confirmExtractLaunch() {
     return
   }
   extractConfirmVisible.value = false
+  uploadWizardVisible.value = false
   await nextTick()
   await submitForm()
 }
@@ -3124,13 +3141,6 @@ onBeforeUnmount(() => {
         </el-menu-item>
       </el-menu>
 
-      <el-card class="ep-side-card" shadow="never">
-        <div class="ep-side-meta">
-          <span>模板数 {{ templates.length }}</span>
-          <span v-if="activeTemplate">当前 {{ activeTemplateName }}</span>
-          <!-- <span>命中 {{ hitCount }}/{{ rows.length }}</span> -->
-        </div>
-      </el-card>
     </el-aside>
 
     <el-container class="ep-main">
@@ -3144,17 +3154,10 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="workspace-topbar-right">
-            <div class="workspace-context enterprise-status-strip">
-              <span class="context-item">模板 <strong>{{ activeTemplateName }}</strong></span>
-              <span class="context-item">模式 <strong>{{ workspaceModeLabel }}</strong></span>
-              <span class="context-item" :class="{ warning: submissionDraftSummary.hasReviewWarnings }">状态 <strong>{{ workspaceReviewLabel }}</strong></span>
-            </div>
             <div class="workspace-actions">
+              <el-button class="workspace-overview-button" plain @click="openPlatformInsightsDialog">运营概览</el-button>
               <el-button circle aria-label="刷新当前工作区" @click="refreshCurrentWorkspace">
                 <el-icon><RefreshRight /></el-icon>
-              </el-button>
-              <el-button circle aria-label="通知" @click="showNotificationHint">
-                <el-icon><Bell /></el-icon>
               </el-button>
               <span class="workspace-avatar" aria-label="当前用户">
                 <el-icon><UserFilled /></el-icon>
@@ -3164,137 +3167,123 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="product-insight-strip" aria-label="IDP 运营概览">
-          <div
-            v-for="item in platformInsightCards"
-            :key="item.label"
-            class="product-insight-card"
-            :class="`is-${item.tone}`"
-          >
-            <span>{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
-            <small>{{ item.hint }}</small>
-          </div>
-        </div>
-
-        <section v-show="currentNav === 'overview'" class="ep-section cockpit-section">
-          <div class="section-hero cockpit-hero">
-            <div>
-              <p class="section-kicker">IDP Operations Cockpit</p>
-              <h3>运营台</h3>
-              <p>用一屏看清资料进入、解析抽取、人审复核、模板覆盖和自动化提交状态，支撑客户试点演示与日常运营。</p>
-            </div>
-            <div class="section-hero-actions">
-              <el-button type="primary" :loading="submitting" @click="currentNav = 'extract'">上传资料</el-button>
-              <el-button :loading="historyLoading || taskLoading" @click="currentNav = 'result'">处理待复核</el-button>
-            </div>
-          </div>
-
-          <div v-if="platformInsightsError" class="cockpit-warning">
+        <el-dialog
+          v-model="platformInsightsDialogVisible"
+          title="运营概览"
+          class="platform-insights-dialog"
+          width="min(1040px, 94vw)"
+          top="5vh"
+          append-to-body
+        >
+          <div v-if="platformInsightsError" class="platform-warning">
             {{ platformInsightsError }}，页面已回退到本地任务与历史数据。
           </div>
 
-          <div class="cockpit-grid">
-            <el-card class="ep-card cockpit-flow-card" shadow="hover" v-loading="platformInsightsLoading">
-              <template #header>
+          <div class="platform-insights-grid" v-loading="platformInsightsLoading">
+            <div
+              v-for="item in platformInsightCards"
+              :key="item.label"
+              class="platform-metric-card"
+              :class="`is-${item.tone}`"
+            >
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+              <small>{{ item.hint }}</small>
+            </div>
+          </div>
+
+          <div class="platform-dialog-layout">
+            <div class="platform-dialog-main">
+              <div class="platform-panel">
                 <div class="ep-card-head spread">
                   <span>端到端处理流</span>
                   <el-tag :type="platformInsights.automation.enabled ? 'success' : 'info'">
                     {{ platformInsights.automation.enabled ? '自动模式' : '人工审核' }}
                   </el-tag>
                 </div>
-              </template>
-              <div class="cockpit-flow">
-                <div
-                  v-for="step in cockpitFlow"
-                  :key="step.label"
-                  class="cockpit-flow-step"
-                  :class="`is-${step.tone}`"
-                >
-                  <span>{{ step.label }}</span>
-                  <strong>{{ step.value }}</strong>
-                  <small>{{ step.hint }}</small>
+                <div class="platform-flow">
+                  <div
+                    v-for="step in platformFlow"
+                    :key="step.label"
+                    class="platform-flow-step"
+                    :class="`is-${step.tone}`"
+                  >
+                    <span>{{ step.label }}</span>
+                    <strong>{{ step.value }}</strong>
+                    <small>{{ step.hint }}</small>
+                  </div>
                 </div>
               </div>
-            </el-card>
 
-            <el-card class="ep-card cockpit-recommendations" shadow="hover">
-              <template #header>
-                <div class="ep-card-head spread">
-                  <span>产品化建议</span>
-                  <el-button text :loading="platformInsightsLoading" @click="loadPlatformInsightsFromServer(false)">刷新</el-button>
-                </div>
-              </template>
-              <div class="recommendation-list">
-                <div
-                  v-for="(item, idx) in platformInsights.recommendations"
-                  :key="`${idx}_${item}`"
-                  class="recommendation-item"
-                >
-                  <span>{{ idx + 1 }}</span>
-                  <p>{{ item }}</p>
-                </div>
-              </div>
-            </el-card>
-          </div>
-
-          <div class="cockpit-grid cockpit-grid-secondary">
-            <el-card class="ep-card cockpit-recent" shadow="hover">
-              <template #header>
+              <div class="platform-panel">
                 <div class="ep-card-head spread">
                   <span>最近资料包</span>
-                  <el-button text @click="currentNav = 'result'">进入审核中心</el-button>
+                  <el-button text @click="platformInsightsDialogVisible = false; currentNav = 'result'">进入审核</el-button>
                 </div>
-              </template>
-              <el-table
-                v-if="platformInsights.history.recent.length > 0"
-                :data="platformInsights.history.recent"
-                size="small"
-                border
-                stripe
-              >
-                <el-table-column prop="filename" label="文件" min-width="180" show-overflow-tooltip />
-                <el-table-column prop="doc_type" label="类型" width="95" />
-                <el-table-column label="复核" min-width="130">
-                  <template #default="{ row }">
-                    <el-tag size="small" :type="row.review_label.includes('缺失') || row.review_label.includes('复核') ? 'warning' : 'success'">
-                      {{ row.review_label }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="时间" width="160">
-                  <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
-                </el-table-column>
-              </el-table>
-              <el-empty v-else description="暂无资料包记录" />
-            </el-card>
+                <el-table
+                  v-if="platformInsights.history.recent.length > 0"
+                  :data="platformInsights.history.recent"
+                  size="small"
+                  border
+                  stripe
+                >
+                  <el-table-column prop="filename" label="文件" min-width="180" show-overflow-tooltip />
+                  <el-table-column prop="doc_type" label="类型" width="95" />
+                  <el-table-column label="复核" min-width="130">
+                    <template #default="{ row }">
+                      <el-tag size="small" :type="row.review_label.includes('缺失') || row.review_label.includes('复核') ? 'warning' : 'success'">
+                        {{ row.review_label }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="时间" width="160">
+                    <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+                  </el-table-column>
+                </el-table>
+                <el-empty v-else description="暂无资料包记录" />
+              </div>
+            </div>
 
-            <el-card class="ep-card cockpit-template-card" shadow="hover">
-              <template #header>
+            <aside class="platform-dialog-side">
+              <div class="platform-panel">
                 <div class="ep-card-head spread">
                   <span>模板治理</span>
-                  <el-button text @click="currentNav = 'template'">维护模板</el-button>
+                  <el-button text @click="platformInsightsDialogVisible = false; currentNav = 'template'">维护</el-button>
                 </div>
-              </template>
-              <div class="cockpit-template-stats">
-                <div v-for="item in cockpitTemplateCoverage" :key="item.label">
-                  <span>{{ item.label }}</span>
-                  <strong>{{ item.value }}</strong>
+                <div class="platform-template-stats">
+                  <div v-for="item in platformTemplateCoverage" :key="item.label">
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}</strong>
+                  </div>
+                </div>
+                <div class="platform-doc-types">
+                  <el-tag
+                    v-for="docType in platformInsights.templates.doc_types"
+                    :key="docType"
+                    type="info"
+                  >
+                    {{ docType }}
+                  </el-tag>
+                  <span v-if="platformInsights.templates.doc_types.length === 0">等待模板配置</span>
                 </div>
               </div>
-              <div class="cockpit-doc-types">
-                <el-tag
-                  v-for="docType in platformInsights.templates.doc_types"
-                  :key="docType"
-                  type="info"
-                >
-                  {{ docType }}
-                </el-tag>
-                <span v-if="platformInsights.templates.doc_types.length === 0">等待模板配置</span>
+
+              <div class="platform-panel">
+                <div class="ep-card-head">产品化建议</div>
+                <div class="recommendation-list">
+                  <div
+                    v-for="(item, idx) in platformInsights.recommendations"
+                    :key="`${idx}_${item}`"
+                    class="recommendation-item"
+                  >
+                    <span>{{ idx + 1 }}</span>
+                    <p>{{ item }}</p>
+                  </div>
+                </div>
               </div>
-            </el-card>
+            </aside>
           </div>
-        </section>
+        </el-dialog>
 
         <section v-show="currentNav === 'template'" class="ep-section">
           <div class="section-hero">
@@ -3577,134 +3566,196 @@ onBeforeUnmount(() => {
         </section>
 
         <section v-show="currentNav === 'extract'" class="ep-section">
-          <div class="section-hero">
-            <div>
-              <p class="section-kicker">Extraction Workspace</p>
-              <h3>处理工作台</h3>
-              <p>按模板上传文档并发起新任务。这里负责启动抽取，不承担结果审核。</p>
+          <div class="focus-workspace">
+            <div class="focus-status-row">
+              <span>状态 <strong>{{ focusReadyLabel }}</strong></span>
+              <span>模板 <strong>{{ activeTemplateName }}</strong></span>
+              <span>字段 <strong>{{ activeTemplateFieldCount }}</strong></span>
+              <span>模型 <strong>{{ form.backend || '-' }}</strong></span>
             </div>
-            <div class="section-hero-metrics">
-              <span class="metric-chip">模板: {{ activeTemplateName }}</span>
-              <span class="metric-chip">字段: {{ activeTemplateFieldCount }}</span>
-              <span class="metric-chip">模型: {{ form.backend || '-' }}</span>
-              <span class="metric-chip">方法: {{ form.parse_method || '-' }}</span>
+
+            <div class="focus-workspace-grid">
+              <div class="focus-main-stack">
+                <div class="focus-action-panel">
+                  <div class="focus-action-copy">
+                    <span>本次处理</span>
+                    <strong>{{ file ? file.name : '等待上传资料' }}</strong>
+                    <small>{{ file ? `${humanFileSize(file.size)} · ${selectedDocType || '未选择类型'}` : `${activeTemplateName} · ${workspaceModeLabel}` }}</small>
+                  </div>
+                  <div class="focus-action-buttons">
+                    <el-button type="primary" :icon="UploadFilled" @click="openUploadWizard(file ? 2 : 0)">上传/配置</el-button>
+                    <el-button :disabled="!file" :loading="submitting" @click="openExtractConfirmDialog">开始提取</el-button>
+                    <el-button @click="currentNav = 'result'">进入审核</el-button>
+                  </div>
+                </div>
+
+                <el-card class="ep-card focus-card" shadow="never">
+                  <template #header>
+                    <div class="ep-card-head spread">
+                      <span>任务队列</span>
+                      <el-button text :loading="taskLoading" @click="loadTaskList()">刷新</el-button>
+                    </div>
+                  </template>
+                  <div v-if="focusQueueItems.length > 0" class="focus-task-list">
+                    <button
+                      v-for="task in focusQueueItems"
+                      :key="task.id"
+                      type="button"
+                      class="focus-task-item"
+                      @click="focusTask(task.id); currentNav = 'result'"
+                    >
+                      <div>
+                        <strong>{{ task.filename || '未命名文件' }}</strong>
+                        <span>{{ task.message || formatTime(task.updated_at) }}</span>
+                      </div>
+                      <el-tag size="small" :type="taskStatusTagType(task.status)">{{ taskStatusLabel(task.status) }}</el-tag>
+                    </button>
+                  </div>
+                  <div v-else class="focus-empty">暂无后台任务</div>
+                </el-card>
+              </div>
+
+              <aside class="focus-side-panel">
+                <div class="focus-side-block">
+                  <div class="focus-side-head">
+                    <span>模板</span>
+                    <el-button text @click="openTemplatePicker">切换</el-button>
+                  </div>
+                  <strong>{{ activeTemplateName }}</strong>
+                  <small>{{ selectedDocType || '未选择文档类型' }} · {{ activeTemplateFieldCount }} 字段</small>
+                </div>
+
+                <div class="focus-side-block">
+                  <div class="focus-side-head">
+                    <span>最近记录</span>
+                    <el-button text @click="currentNav = 'result'">查看</el-button>
+                  </div>
+                  <div v-if="focusRecentHistory.length > 0" class="focus-history-list">
+                    <button
+                      v-for="item in focusRecentHistory"
+                      :key="item.id"
+                      type="button"
+                      @click="openHistory(item.id); currentNav = 'result'"
+                    >
+                      <strong>{{ item.filename || '未命名文件' }}</strong>
+                      <span>{{ formatTime(item.created_at) }}</span>
+                    </button>
+                  </div>
+                  <div v-else class="focus-empty">暂无历史记录</div>
+                </div>
+              </aside>
             </div>
           </div>
 
-          <el-card class="ep-card" shadow="hover">
-            <template #header>
-              <div class="ep-card-head spread">
-                <span>处理工作台</span>
-                <el-tag type="success">当前模板字段 {{ activeTemplateFieldCount }} 项</el-tag>
-              </div>
-            </template>
+          <el-dialog
+            v-model="uploadWizardVisible"
+            title="上传资料"
+            class="upload-wizard-dialog"
+            width="min(1040px, 94vw)"
+            top="4vh"
+            append-to-body
+          >
+            <el-steps :active="uploadWizardStep" align-center finish-status="success" class="upload-wizard-steps">
+              <el-step
+                v-for="step in uploadWizardSteps"
+                :key="step.title"
+                :title="step.title"
+                :description="step.desc"
+              />
+            </el-steps>
 
-            <el-alert
-              title="流程建议：先在模板中心维护字段和规则，再回到此处上传文件并执行提取。"
-              type="info"
-              :closable="false"
-              show-icon
-            />
-            <el-alert
-              class="top-gap-xs"
-              :title="autoModeEnabled ? '当前为自动模式：新任务会继续执行字段映射和目标系统提交。' : '当前为人工模式：新任务只执行识别，后续由你在审核中心决定是否填报。'"
-              :type="autoModeEnabled ? 'success' : 'warning'"
-              :closable="false"
-              show-icon
-            />
-
-            <el-form label-position="top" class="top-gap" @submit.prevent="openExtractConfirmDialog">
-              <el-steps :active="extractStepActive" align-center finish-status="success" class="extract-steps">
-                <el-step title="选择模板" />
-                <el-step title="上传文件与提示词" />
-                <el-step title="执行提取" />
-              </el-steps>
-
-              <el-row :gutter="14" class="ep-row-gap extract-control-grid">
-                <el-col :xs="24" :xl="8">
-                  <el-card class="panel-card" shadow="never">
-                    <template #header><div class="ep-card-head">提取参数</div></template>
-                    <el-form-item label="当前来源">
-                      <el-select v-model="selectedVendor" class="w-full" clearable placeholder="可留空使用通用模板">
-                        <el-option v-for="vendor in vendorOptions" :key="vendor" :label="vendor" :value="vendor" />
-                      </el-select>
-                    </el-form-item>
-                    <el-form-item label="当前文档类型">
-                      <el-select
-                        v-model="selectedDocType"
-                        class="w-full"
-                        placeholder="选择文档类型"
-                      >
-                        <el-option v-for="t in docTypeOptionsForSelectedVendor" :key="t" :label="t" :value="t" />
-                      </el-select>
-                    </el-form-item>
-                    <div class="fixed-config-list">
-                      <el-tag type="info">model_version: {{ form.backend || '-' }}</el-tag>
-                      <el-tag type="info">parse_method: {{ form.parse_method || '-' }}</el-tag>
-                      <el-tag type="info">lang_list: {{ form.lang_list || '-' }}</el-tag>
-                    </div>
-                    <el-button type="primary" plain class="w-full" @click="openTemplatePicker">选择模板</el-button>
-                    <el-button plain class="w-full top-gap-xs" @click="currentNav = 'template'">前往模板中心</el-button>
-                  </el-card>
-                </el-col>
-
-                <el-col :xs="24" :xl="16">
-                  <el-card class="panel-card" shadow="never">
-                    <template #header><div class="ep-card-head">上传与提示词</div></template>
-                    <el-tabs v-model="extractWorkspaceTab" class="workspace-tabs extract-workspace-tabs">
-                      <el-tab-pane label="文件上传" name="upload">
-                        <el-form-item label="文件上传">
-                          <p class="field-hint">支持 PDF、图片、Office 与 Excel（.xlsx）。每次提取建议仅上传一个文件。</p>
-                          <el-upload
-                            class="extract-uploader"
-                            drag
-                            action="#"
-                            :auto-upload="false"
-                            :show-file-list="false"
-                            :accept="EXTRACT_UPLOAD_ACCEPT"
-                            :on-change="onExtractUploadChange"
-                          >
-                            <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-                            <div class="el-upload__text">拖拽到此处，或 <em>点击上传</em></div>
-                            <template #tip>
-                              <div class="el-upload__tip">提交前不会自动上传，点击“开始提取”才会调用接口。</div>
-                            </template>
-                          </el-upload>
-                          <div v-if="file" class="upload-file-meta">
-                            <el-tag type="info">{{ file.name }} ({{ humanFileSize(file.size) }})</el-tag>
-                            <el-button text type="danger" @click="removeFile">移除</el-button>
-                          </div>
-                        </el-form-item>
-                      </el-tab-pane>
-                      <el-tab-pane label="提示词" name="prompt">
-                        <el-form-item label="大模型提取提示词">
-                          <p class="field-hint">建议直接定义输出字段和 JSON 结构，以获得稳定结果。</p>
-                          <el-input
-                            v-model="form.llm_prompt"
-                            type="textarea"
-                            :rows="12"
-                            placeholder="例如：请从文档 Markdown 文本中提取编号、日期、主体、金额，并返回 JSON 对象。"
-                          />
-                        </el-form-item>
-                      </el-tab-pane>
-                    </el-tabs>
-                  </el-card>
-                </el-col>
-              </el-row>
-
-              <div class="extract-submit-bar">
-                <div class="extract-posture">
-                  <span class="extract-posture-label">当前运行姿态</span>
-                  <strong>{{ autoModeEnabled ? '自动流水线' : '人工接管' }}</strong>
-                  <span>{{ autoModeEnabled ? '上传后继续执行提取、映射和填报' : '上传后停在识别结果，等待你检查与提交' }}</span>
+            <el-form label-position="top" class="upload-wizard-form" @submit.prevent="openExtractConfirmDialog">
+              <div class="upload-wizard-body">
+                <div class="upload-wizard-config">
+                  <div class="ep-card-head">提取参数</div>
+                  <el-form-item label="当前来源">
+                    <el-select v-model="selectedVendor" class="w-full" clearable placeholder="可留空使用通用模板">
+                      <el-option v-for="vendor in vendorOptions" :key="vendor" :label="vendor" :value="vendor" />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item label="当前文档类型">
+                    <el-select
+                      v-model="selectedDocType"
+                      class="w-full"
+                      placeholder="选择文档类型"
+                    >
+                      <el-option v-for="t in docTypeOptionsForSelectedVendor" :key="t" :label="t" :value="t" />
+                    </el-select>
+                  </el-form-item>
+                  <div class="fixed-config-list">
+                    <el-tag type="info">model_version: {{ form.backend || '-' }}</el-tag>
+                    <el-tag type="info">parse_method: {{ form.parse_method || '-' }}</el-tag>
+                    <el-tag type="info">lang_list: {{ form.lang_list || '-' }}</el-tag>
+                  </div>
+                  <el-button type="primary" plain class="w-full" @click="openTemplatePicker">选择模板</el-button>
+                  <el-button plain class="w-full top-gap-xs" @click="uploadWizardVisible = false; currentNav = 'template'">前往模板</el-button>
                 </div>
-                <el-button :disabled="!file" @click="removeFile">清空文件</el-button>
-                <el-button type="primary" :loading="submitting" @click="openExtractConfirmDialog">
+
+                <div class="upload-wizard-content">
+                  <el-tabs v-model="extractWorkspaceTab" class="workspace-tabs extract-workspace-tabs">
+                    <el-tab-pane label="文件上传" name="upload">
+                      <el-form-item label="文件上传">
+                        <p class="field-hint">支持 PDF、图片、Office 与 Excel（.xlsx）。</p>
+                        <el-upload
+                          class="extract-uploader"
+                          drag
+                          action="#"
+                          :auto-upload="false"
+                          :show-file-list="false"
+                          :accept="EXTRACT_UPLOAD_ACCEPT"
+                          :on-change="onExtractUploadChange"
+                        >
+                          <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+                          <div class="el-upload__text">拖拽到此处，或 <em>点击上传</em></div>
+                        </el-upload>
+                        <div v-if="file" class="upload-file-meta">
+                          <el-tag type="info">{{ file.name }} ({{ humanFileSize(file.size) }})</el-tag>
+                          <el-button text type="danger" @click="removeFile">移除</el-button>
+                        </div>
+                      </el-form-item>
+                    </el-tab-pane>
+                    <el-tab-pane label="提示词" name="prompt">
+                      <el-form-item label="大模型提取提示词">
+                        <el-input
+                          v-model="form.llm_prompt"
+                          type="textarea"
+                          :rows="12"
+                          placeholder="例如：请从文档 Markdown 文本中提取编号、日期、主体、金额，并返回 JSON 对象。"
+                        />
+                      </el-form-item>
+                    </el-tab-pane>
+                  </el-tabs>
+                </div>
+              </div>
+            </el-form>
+
+            <template #footer>
+              <div class="upload-wizard-footer">
+                <el-button @click="uploadWizardVisible = false">取消</el-button>
+                <el-button
+                  :disabled="uploadWizardStep <= 0"
+                  @click="uploadWizardStep = Math.max(0, uploadWizardStep - 1)"
+                >
+                  上一步
+                </el-button>
+                <el-button
+                  v-if="uploadWizardStep < uploadWizardSteps.length - 1"
+                  type="primary"
+                  @click="uploadWizardStep = Math.min(uploadWizardSteps.length - 1, uploadWizardStep + 1)"
+                >
+                  下一步
+                </el-button>
+                <el-button
+                  v-else
+                  type="primary"
+                  :loading="submitting"
+                  @click="openExtractConfirmDialog"
+                >
                   {{ submitting ? '提交中...' : '开始提取' }}
                 </el-button>
               </div>
-            </el-form>
-          </el-card>
+            </template>
+          </el-dialog>
 
           <el-dialog
             v-model="templatePickerVisible"

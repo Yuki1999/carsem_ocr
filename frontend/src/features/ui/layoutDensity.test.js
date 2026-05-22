@@ -11,8 +11,8 @@ describe('layout density CSS', () => {
     expect(css).toMatch(/\.workspace-topbar\s*\{[^}]*max-width:/s)
   })
 
-  it('uses explicit compact grids for extraction and result workspaces', () => {
-    expect(css).toMatch(/\.extract-control-grid\s*\{[^}]*grid-template-columns:\s*minmax\(260px,\s*320px\)\s+minmax\(0,\s*1fr\)/s)
+  it('uses explicit compact grids for focused workspaces', () => {
+    expect(css).toMatch(/\.focus-workspace-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+320px/s)
     expect(css).toMatch(/\.result-shell\s*\{[^}]*grid-template-columns:\s*260px\s+minmax\(0,\s*1fr\)/s)
   })
 
@@ -45,28 +45,29 @@ describe('layout density CSS', () => {
     expect(css).toContain('--surface-1:')
     expect(css).toContain('--surface-2:')
     expect(css).toContain('--control-height:')
-    expect(css).toContain('.enterprise-status-strip')
+    expect(css).toContain('.focus-workspace')
     expect(css).not.toContain('Noto Serif SC')
     expect(css).not.toContain('radial-gradient')
   })
 
-  it('surfaces productized IDP operating metrics before users enter task details', () => {
+  it('keeps global chrome focused and moves operating metrics into a modal', () => {
     expect(appVue).toContain('const platformInsights')
-    expect(appVue).toContain('class="product-insight-strip"')
-    expect(appVue).toContain('aria-label="IDP 运营概览"')
-    expect(css).toContain('.product-insight-strip')
-    expect(css).toContain('.product-insight-card')
+    expect(appVue).toContain("const currentNav = ref('extract')")
+    expect(appVue).not.toContain("key: 'overview'")
+    expect(appVue).not.toContain('class="product-insight-strip"')
+    expect(appVue).toContain('const platformInsightsDialogVisible')
+    expect(appVue).toContain('class="platform-insights-dialog"')
+    expect(css).toContain('.platform-insights-dialog')
+    expect(css).not.toContain('.product-insight-strip')
   })
 
-  it('adds an operation cockpit as the default product entry point', () => {
-    expect(appVue).toContain("const currentNav = ref('overview')")
-    expect(appVue).toContain("key: 'overview'")
-    expect(appVue).toContain("v-show=\"currentNav === 'overview'\"")
-    expect(appVue).toContain('class="cockpit-grid"')
-    expect(appVue).toContain('class="cockpit-flow"')
-    expect(appVue).toContain('cockpit-recommendations')
-    expect(css).toContain('.cockpit-grid')
-    expect(css).toContain('.cockpit-flow')
-    expect(css).toContain('.cockpit-recommendations')
+  it('uses a modal upload wizard instead of always exposing setup panels', () => {
+    expect(appVue).toContain('const uploadWizardVisible')
+    expect(appVue).toContain('class="focus-workspace"')
+    expect(appVue).toContain('class="upload-wizard-dialog"')
+    expect(appVue).toContain('class="upload-wizard-steps"')
+    expect(appVue).not.toContain("v-show=\"currentNav === 'overview'\"")
+    expect(css).toContain('.focus-workspace')
+    expect(css).toContain('.upload-wizard-dialog')
   })
 })

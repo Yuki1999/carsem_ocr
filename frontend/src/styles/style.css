@@ -1795,6 +1795,12 @@ select,
   background: #ffffff;
 }
 
+.workspace-actions .workspace-overview-button.el-button {
+  width: auto;
+  min-width: 88px;
+  padding: 0 12px;
+}
+
 .workspace-avatar {
   min-height: 36px;
   display: inline-flex;
@@ -2548,76 +2554,291 @@ body {
   background: #0f172a;
 }
 
-.product-insight-strip {
+.focus-workspace {
   width: 100%;
   max-width: 1180px;
-  margin: 0 auto 12px;
+  margin: 0 auto;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 
-.product-insight-card {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-  padding: 10px 12px;
+.focus-workspace-head {
+  min-height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface-1);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  box-shadow: var(--shadow-soft);
 }
 
-.product-insight-card span {
+.focus-workspace-head h3 {
+  margin: 2px 0 0;
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 780;
+  color: #172033;
+}
+
+.focus-head-actions,
+.focus-action-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.focus-status-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.focus-status-row span {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-1);
   color: #64748b;
-  font-size: 11px;
-  font-weight: 760;
+  font-size: 12px;
 }
 
-.product-insight-card strong {
+.focus-status-row strong {
   min-width: 0;
   color: #172033;
-  font-size: 17px;
-  line-height: 1.25;
+  font-weight: 760;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.focus-workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 12px;
+  align-items: start;
+}
+
+.focus-main-stack,
+.focus-side-panel {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.focus-action-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-height: 156px;
+  padding: 18px;
+  border: 1px solid #cfd9e5;
+  border-radius: var(--radius);
+  background: #ffffff;
+  box-shadow: var(--shadow-card);
+}
+
+.focus-action-copy {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.focus-action-copy span,
+.focus-side-head span,
+.platform-metric-card span,
+.platform-flow-step span,
+.platform-template-stats span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 740;
+}
+
+.focus-action-copy strong {
+  min-width: 0;
+  color: #111827;
+  font-size: 28px;
+  line-height: 1.2;
   font-weight: 780;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.product-insight-card small {
+.focus-action-copy small {
   min-width: 0;
   color: #64748b;
-  font-size: 12px;
-  line-height: 1.35;
+  font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.product-insight-card.is-success {
-  border-left: 3px solid #16a34a;
+.focus-card {
+  box-shadow: none;
 }
 
-.product-insight-card.is-warning {
-  border-left: 3px solid #d97706;
-  background: #fffbeb;
+.focus-task-list,
+.focus-history-list,
+.recommendation-list {
+  display: grid;
+  gap: 8px;
 }
 
-.product-insight-card.is-info {
-  border-left: 3px solid var(--accent);
+.focus-empty {
+  display: grid;
+  place-items: center;
+  min-height: 96px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: #64748b;
+  font-size: 13px;
 }
 
-.cockpit-section {
-  max-width: 1180px;
-  margin: 0 auto;
+.focus-task-item,
+.focus-history-list button {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
 }
 
-.cockpit-hero {
+.focus-task-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
 }
 
-.cockpit-warning {
+.focus-task-item div,
+.focus-history-list button {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.focus-task-item strong,
+.focus-history-list strong,
+.focus-side-block > strong {
+  min-width: 0;
+  color: #172033;
+  font-size: 14px;
+  font-weight: 760;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.focus-task-item span,
+.focus-history-list span,
+.focus-side-block small {
+  min-width: 0;
+  color: #64748b;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.focus-history-list button {
+  padding: 9px 10px;
+}
+
+.focus-side-block {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.focus-side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.upload-wizard-dialog .el-dialog,
+.platform-insights-dialog .el-dialog {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+
+.upload-wizard-dialog .el-dialog__body,
+.platform-insights-dialog .el-dialog__body {
+  padding: 14px;
+  max-height: calc(100vh - 170px);
+  overflow: auto;
+  background: var(--surface-2);
+}
+
+.upload-wizard-dialog .el-dialog__footer,
+.platform-insights-dialog .el-dialog__footer {
+  padding: 10px 14px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-1);
+}
+
+.upload-wizard-steps {
+  margin-bottom: 14px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+
+.upload-wizard-form {
+  min-width: 0;
+}
+
+.upload-wizard-body {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.upload-wizard-config,
+.upload-wizard-content,
+.platform-panel {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+
+.upload-wizard-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.platform-warning {
+  margin-bottom: 10px;
   padding: 10px 12px;
   border: 1px solid #f0c36c;
   border-radius: var(--radius);
@@ -2626,54 +2847,36 @@ body {
   font-size: 13px;
 }
 
-.cockpit-grid {
+.platform-insights-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.85fr);
-  gap: 12px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
-.cockpit-grid-secondary {
-  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.9fr);
-}
-
-.cockpit-recommendations .el-card__body,
-.cockpit-template-card .el-card__body {
-  display: grid;
-  align-content: start;
-}
-
-.cockpit-flow {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.cockpit-flow-step {
+.platform-metric-card {
   min-width: 0;
   display: grid;
-  gap: 5px;
-  padding: 12px;
+  gap: 3px;
+  padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--surface-2);
+  background: var(--surface-1);
 }
 
-.cockpit-flow-step span,
-.cockpit-template-stats span {
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 720;
-}
-
-.cockpit-flow-step strong,
-.cockpit-template-stats strong {
+.platform-metric-card strong {
+  min-width: 0;
   color: #172033;
-  font-size: 19px;
+  font-size: 18px;
   line-height: 1.25;
   font-weight: 780;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.cockpit-flow-step small {
+.platform-metric-card small,
+.platform-flow-step small {
   min-width: 0;
   color: #64748b;
   font-size: 12px;
@@ -2683,22 +2886,59 @@ body {
   white-space: nowrap;
 }
 
-.cockpit-flow-step.is-success {
+.platform-metric-card.is-success,
+.platform-flow-step.is-success {
   border-left: 3px solid #16a34a;
 }
 
-.cockpit-flow-step.is-warning {
+.platform-metric-card.is-warning,
+.platform-flow-step.is-warning {
   border-left: 3px solid #d97706;
   background: #fffbeb;
 }
 
-.cockpit-flow-step.is-info {
+.platform-metric-card.is-info,
+.platform-flow-step.is-info {
   border-left: 3px solid var(--accent);
 }
 
-.recommendation-list {
+.platform-dialog-layout {
   display: grid;
-  gap: 9px;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 12px;
+  align-items: start;
+}
+
+.platform-dialog-main,
+.platform-dialog-side {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.platform-flow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.platform-flow-step {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.platform-flow-step strong,
+.platform-template-stats strong {
+  color: #172033;
+  font-size: 18px;
+  line-height: 1.25;
+  font-weight: 780;
 }
 
 .recommendation-item {
@@ -2731,22 +2971,23 @@ body {
   line-height: 1.5;
 }
 
-.cockpit-template-stats {
+.platform-template-stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+  margin-top: 10px;
 }
 
-.cockpit-template-stats > div {
+.platform-template-stats > div {
   display: grid;
   gap: 4px;
-  padding: 11px;
+  padding: 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface-2);
 }
 
-.cockpit-doc-types {
+.platform-doc-types {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -3039,19 +3280,17 @@ body {
     position: static;
   }
 
-  .product-insight-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .cockpit-grid,
-  .cockpit-grid-secondary {
+  .focus-workspace-grid,
+  .platform-dialog-layout,
+  .upload-wizard-body {
     grid-template-columns: 1fr;
   }
 
-  .cockpit-flow {
+  .platform-insights-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .platform-flow,
   .extract-control-grid,
   .result-shell {
     grid-template-columns: 1fr;
@@ -3099,50 +3338,44 @@ body {
 
   .workspace-actions {
     justify-content: flex-start;
+    flex-wrap: wrap;
+    width: 100%;
   }
 
-  .enterprise-status-strip {
-    display: none;
+  .workspace-actions .workspace-overview-button.el-button {
+    min-width: 112px;
   }
 
-  .product-insight-strip {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 5px;
-    margin-bottom: 10px;
-  }
-
-  .product-insight-card {
-    padding: 7px 6px;
-  }
-
-  .product-insight-card strong {
-    font-size: 12px;
-    line-height: 1.2;
-    white-space: normal;
-  }
-
-  .product-insight-card span {
-    font-size: 10px;
-  }
-
-  .product-insight-card small {
-    display: none;
-  }
-
-  .cockpit-flow {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .cockpit-flow-step small {
-    white-space: normal;
-  }
-
-  .cockpit-template-stats {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .cockpit-hero {
+  .focus-workspace-head,
+  .focus-action-panel {
+    grid-template-columns: 1fr;
     align-items: stretch;
+  }
+
+  .focus-workspace-head {
+    display: grid;
+  }
+
+  .focus-head-actions,
+  .focus-action-buttons,
+  .upload-wizard-footer {
+    justify-content: flex-start;
+  }
+
+  .focus-status-row,
+  .platform-insights-grid,
+  .platform-flow,
+  .platform-template-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .focus-action-copy strong {
+    font-size: 22px;
+    white-space: normal;
+  }
+
+  .platform-flow-step small {
+    white-space: normal;
   }
 
   .workspace-actions .el-button,
@@ -3176,6 +3409,10 @@ body {
     font-size: 12px;
     line-height: 1.25;
     white-space: nowrap;
+  }
+
+  .upload-wizard-steps .el-step__description {
+    display: none;
   }
 
   .ep-card .el-card__header,
