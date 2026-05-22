@@ -866,6 +866,41 @@ const workspaceReviewLabel = computed(() => {
   }
   return `明细 ${submissionDraftSummary.value.detailCount}`
 })
+const platformInsights = computed(() => {
+  const activeQueue = taskItems.value.filter((task) => {
+    const status = String(task?.status || '').toLowerCase()
+    return ['queued', 'running', 'processing', 'pending'].includes(status)
+  }).length
+  const reviewLoad = Number(submissionDraftSummary.value.missingCount || 0) + Number(submissionDraftSummary.value.reviewCount || 0)
+  const detailCount = Number(submissionDraftSummary.value.detailCount || 0)
+  const historyCount = historyItems.value.length
+  return [
+    {
+      label: '业务队列',
+      value: activeQueue > 0 ? `${activeQueue} 个运行中` : `${historyCount} 条历史`,
+      hint: activeQueue > 0 ? '后台任务正在处理' : '暂无运行任务',
+      tone: activeQueue > 0 ? 'info' : 'neutral',
+    },
+    {
+      label: '模板覆盖',
+      value: `${templateStats.value.common} 通用 / ${templateStats.value.vendor} 专属`,
+      hint: activeTemplateName.value,
+      tone: 'neutral',
+    },
+    {
+      label: '人审负载',
+      value: reviewLoad > 0 ? `${reviewLoad} 项需复核` : '低风险',
+      hint: detailCount > 0 ? `明细 ${detailCount} 行` : '等待识别结果',
+      tone: reviewLoad > 0 ? 'warning' : 'success',
+    },
+    {
+      label: '自动化状态',
+      value: autoModeEnabled.value ? '自动流水线' : '人工接管',
+      hint: autoModeEnabled.value ? '提取后继续提交目标系统' : '停在审核中心确认',
+      tone: autoModeEnabled.value ? 'success' : 'info',
+    },
+  ]
+})
 const submissionPacketMeta = computed(() => {
   const packet = submissionDraft.value?.meta?.packet
   return packet && typeof packet === 'object' ? packet : {}
@@ -3066,6 +3101,19 @@ onBeforeUnmount(() => {
                 <strong>Admin</strong>
               </span>
             </div>
+          </div>
+        </div>
+
+        <div class="product-insight-strip" aria-label="IDP 运营概览">
+          <div
+            v-for="item in platformInsights"
+            :key="item.label"
+            class="product-insight-card"
+            :class="`is-${item.tone}`"
+          >
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+            <small>{{ item.hint }}</small>
           </div>
         </div>
 

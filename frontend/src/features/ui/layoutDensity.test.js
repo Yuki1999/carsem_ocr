@@ -49,4 +49,12 @@ describe('layout density CSS', () => {
     expect(css).not.toContain('Noto Serif SC')
     expect(css).not.toContain('radial-gradient')
   })
+
+  it('surfaces productized IDP operating metrics before users enter task details', () => {
+    expect(appVue).toContain('const platformInsights')
+    expect(appVue).toContain('class="product-insight-strip"')
+    expect(appVue).toContain('aria-label="IDP 运营概览"')
+    expect(css).toContain('.product-insight-strip')
+    expect(css).toContain('.product-insight-card')
+  })
 })
