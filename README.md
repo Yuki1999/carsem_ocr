@@ -1,16 +1,21 @@
 # carsem_ocr (Vite + Vue + FastAPI)
 
 ## 用户文档
-- [用户使用说明](./用户使用说明.md)
+- [用户使用说明](./docs/user-guide.md)
 
 ## 架构
-- `app/`: FastAPI 后端（仅 API + 生产静态托管）
+- `app/api/`: FastAPI 应用与路由入口
+- `app/services/`: OCR、LLM、报关提交等后端服务
+- `app/store/`: 历史记录、模板、LLM 设置持久化
+- `app/main.py`: 兼容入口，继续暴露 `app.main:app`
 - `frontend/`: Vite + Vue 前端工程
+- `frontend/src/features/`: 前端按功能拆分的模块目录
+- `samples/`: 样例 PDF 文件
 
 ## 开发模式
 ### 1) 启动后端
 ```bash
-python -m uvicorn app.main:app --host 0.0.0.0 --port 16068 --reload
+./.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 16068 --reload
 ```
 
 ### 2) 启动前端
@@ -31,7 +36,7 @@ cd frontend
 npm install
 npm run build
 cd ..
-python -m uvicorn app.main:app --host 0.0.0.0 --port 16068
+./.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 16068
 ```
 
 生产模式下，FastAPI 自动托管 `frontend/dist`。
@@ -41,7 +46,7 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 16068
 - 后端端口：`16068`（可改，但需同步前端代理目标）
 
 ```bash
-cd /home/sip-telecom/Services/carsem_ocr
+cd /home/qqr/carsem_ocr
 mkdir -p output/logs
 pm2 start ecosystem.config.cjs
 pm2 save
@@ -72,6 +77,49 @@ pm2 logs carsem-ocr-frontend
 
 前端提取页面已增加“提示词”输入框，作为第二阶段抽取指令。
 
+## OCR 引擎选择
+前端“提取工作台”与“模板管理”支持选择 OCR 引擎：
+
+- `MinerU`：默认引擎，保持现有官方 API 流程
+- `OpenDataLoader PDF`：本地解析/混合 OCR 管道，适合部署机可安装本地依赖的场景
+- `Qwen3.5-Plus 端到端`：通过阿里云百炼兼容 OpenAI 接口直接完成多模态 OCR 与字段抽取
+- `Excel .xlsx`：上传 `.xlsx` 时后端直接解析工作表文本，再进入大模型字段抽取链路；第一版不支持 `.xls`
+
+后端接口新增表单字段：
+
+- `ocr_engine=mineru|opendataloader|qwen_vision`
+
+未传该字段时默认使用 `mineru`。
+
+## OpenDataLoader PDF 部署
+如果要启用 `OpenDataLoader PDF`，部署机需要额外准备：
+
+```bash
+java -version   # 需要 Java 11+
+pip install -U opendataloader-pdf
+pip install -U "opendataloader-pdf[hybrid]"
+```
+
+如果要处理扫描件 OCR，需额外启动 hybrid 服务。官方 README 示例：
+
+```bash
+opendataloader-pdf-hybrid --port 5002 --force-ocr --ocr-lang "ch_sim,en"
+```
+
+本项目后端默认通过本机命令 `opendataloader-pdf` 调用该管道，可用以下环境变量调整：
+
+```bash
+export OPENDATALOADER_PDF_COMMAND="opendataloader-pdf"
+export OPENDATALOADER_PDF_OUTPUT_FORMAT="markdown,json,text"
+export OPENDATALOADER_PDF_EXTRA_ARGS="--hybrid docling-fast"
+```
+
+说明：
+
+- `OPENDATALOADER_PDF_EXTRA_ARGS` 会原样追加到命令行，适合传递 hybrid 相关参数
+- 若命令未安装或执行失败，后端会返回明确错误信息
+- `OpenDataLoader PDF` 结果会统一整理为 `text/markdown/json/middle_json` 后再进入 LLM 抽取与历史记录
+
 ## LLM 配置
 支持两种方式配置大模型服务：
 
@@ -82,6 +130,20 @@ export LLM_BASE_URL="http://127.0.0.1:11434/v1"
 export LLM_MODEL="qwen2.5:14b"
 export LLM_API_KEY=""
 ```
+
+如果要启用 `Qwen3.5-Plus 端到端`，可直接复用这套配置，推荐填写：
+
+```bash
+export LLM_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
+export LLM_MODEL="qwen3.5-plus"
+export LLM_API_KEY="sk-..."
+```
+
+说明：
+
+- `qwen_vision` 复用前端“高级设置”中的 `llm_base_url`、`llm_model`、`llm_api_key`
+- 选择 `qwen_vision` 时，不再走现有文本型 `run_llm_extract()` 二阶段抽取，而是由多模态模型直接返回最终 JSON
+- 当前 `qwen_vision` 仅支持 `PDF` 和图片文件，不支持 `doc/docx/ppt/pptx/xlsx`；`.xlsx` 会走后端 Excel 文本解析链路
 
 ## MinerU 官方 Token 配置
 支持两种方式配置官方 API Token：

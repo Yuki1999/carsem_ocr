@@ -2,9 +2,25 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import { ElMessage } from 'element-plus'
-import { FullScreen, UploadFilled, Plus, RefreshRight } from '@element-plus/icons-vue'
+import { Bell, Download, FullScreen, UploadFilled, Plus, RefreshRight, UserFilled } from '@element-plus/icons-vue'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+import {
+  EXTRACT_UPLOAD_ACCEPT,
+  buildExtractRequestFields,
+  normalizeTemplateOcrEngine,
+} from './features/extraction/ocrEngine'
+import {
+  DOC_TYPES,
+  FIXED_WORKSPACE_OCR_ENGINE,
+  buildDocTypeOptionsForVendor,
+  buildVendorOptions,
+  chooseTemplateSelection,
+  createInitialWorkspaceSelection,
+  createTemplateDraftDefaults,
+  normalizeVendorKey,
+  resolveDocTypeForVendor,
+} from './features/settings/workspaceConfig'
 import {
   CUSTOMS_DETAIL_FIELDS,
   CUSTOMS_HEADER_FIELDS,
@@ -13,20 +29,25 @@ import {
   createEmptySubmissionDraft,
   normalizeSubmissionDraft,
   removeDraftDetailRow,
-} from './submissionDraft'
+} from './features/extraction/submissionDraft'
 import {
   chooseDefaultEvidenceTab,
   classifyEvidenceFile,
+  pickPrimaryMarkdownFile,
   pickPrimaryOriginalFile,
-} from './historyEvidence'
-import { buildAutoModeStatusView } from './autoModeStatus'
-import { shouldPersistAutoModeChange } from './autoModePersistence'
+  resolveOriginalPreviewFile,
+} from './features/evidence/historyEvidence'
+import { buildAutoModeStatusView } from './features/auto-mode/autoModeStatus'
+import { shouldPersistAutoModeChange } from './features/auto-mode/autoModePersistence'
+import { choosePreferredMarkdownPreview } from './features/evidence/evidencePreview'
+import {
+  buildExtractionLaunchReview,
+  buildFieldDetailView,
+} from './features/ui/layeredInteractions'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
-const DOC_TYPES = ['到货单', '物流通知书', '送货单', '发票']
 const PARSE_METHODS = ['auto', 'txt', 'ocr']
-const DEFAULT_VENDOR = '默认厂商'
 const DEFAULT_MODEL_VERSION = 'vlm'
 const DEFAULT_PARSE_METHOD = 'auto'
 const DEFAULT_LANG_LIST = 'en'
@@ -37,6 +58,7 @@ const DEFAULT_CUSTOMS_SUBMIT_MODE = 'http'
 const LLM_PROVIDER_OPTIONS = [
   { label: 'DeepSeek', value: 'deepseek' },
   { label: 'Gemini', value: 'gemini' },
+  { label: '百炼', value: 'bailian' },
   { label: '自定义', value: 'custom' },
 ]
 const LLM_PROVIDER_PRESETS = {
@@ -48,17 +70,19 @@ const LLM_PROVIDER_PRESETS = {
     base_url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
     model: 'gemini-3-flash-preview',
   },
+  bailian: {
+    base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    model: 'qwen3.5-plus',
+  },
 }
 
-const templateDraft = ref({
-  vendor: DEFAULT_VENDOR,
-  doc_type: '到货单',
-})
+const initialWorkspaceSelection = createInitialWorkspaceSelection(DOC_TYPES)
+const templateDraft = ref(createTemplateDraftDefaults(DOC_TYPES))
 
 const templates = ref(loadTemplates())
 const templatesLoading = ref(false)
-const selectedVendor = ref(templates.value[0]?.vendor || DEFAULT_VENDOR)
-const selectedDocType = ref(templates.value[0]?.doc_type || DOC_TYPES[0])
+const selectedVendor = ref(initialWorkspaceSelection.vendor)
+const selectedDocType = ref(initialWorkspaceSelection.docType)
 const initialLlmSettings = loadLlmSettings()
 const llmConfigs = ref(initialLlmSettings.items)
 const activeLlmConfigId = ref(initialLlmSettings.active_id)
@@ -88,6 +112,7 @@ const form = ref({
   llm_base_url: activeLlmConfig.value?.llm_base_url || DEFAULT_LLM_BASE_URL,
   llm_model: activeLlmConfig.value?.llm_model || DEFAULT_LLM_MODEL,
   llm_api_key: activeLlmConfig.value?.llm_api_key || DEFAULT_LLM_API_KEY,
+  ocr_engine: FIXED_WORKSPACE_OCR_ENGINE,
   backend: DEFAULT_MODEL_VERSION,
   parse_method: DEFAULT_PARSE_METHOD,
   lang_list: DEFAULT_LANG_LIST,
@@ -130,6 +155,12 @@ const fileInput = ref(null)
 const previewPaneRef = ref(null)
 const previewPaneModalRef = ref(null)
 const previewModalVisible = ref(false)
+const templatePickerVisible = ref(false)
+const templatePickerQuery = ref('')
+const extractConfirmVisible = ref(false)
+const fieldDetailVisible = ref(false)
+const selectedFieldDetailRow = ref(null)
+const submissionExtraFieldsVisible = ref(false)
 const templateEditorVisible = ref(false)
 const templateEditorMode = ref('create')
 const editingTemplateKey = ref('')
@@ -150,12 +181,15 @@ const ruleDrawStart = ref(null)
 let samplePdfDoc = null
 let taskPollTimer = null
 const currentNav = ref('extract')
+const extractWorkspaceTab = ref('upload')
+const resultWorkspaceTab = ref('goods')
 const NAV_ITEMS = [
-  { key: 'template', label: '模板管理' },
-  { key: 'extract', label: '提取工作台' },
-  { key: 'result', label: '结果中心' },
-  { key: 'settings', label: '系统设置' },
+  { key: 'template', label: '模板管理', desc: '字段与规则' },
+  { key: 'extract', label: '提取工作台', desc: '上传与任务' },
+  { key: 'result', label: '结果中心', desc: '证据与草稿' },
+  { key: 'settings', label: '系统设置', desc: '模型与自动化' },
 ]
+const currentNavItem = computed(() => NAV_ITEMS.find((item) => item.key === currentNav.value) || NAV_ITEMS[1])
 const markdown = new MarkdownIt({
   html: true,
   linkify: true,
@@ -178,6 +212,7 @@ function inferLlmProvider(baseUrl, model) {
   const mdl = String(model || '').toLowerCase()
   if (base.includes('deepseek.com') || mdl.includes('deepseek')) return 'deepseek'
   if (base.includes('generativelanguage.googleapis.com') || mdl.includes('gemini')) return 'gemini'
+  if (base.includes('dashscope.aliyuncs.com') || base.includes('dashscope-intl.aliyuncs.com') || mdl.includes('qwen')) return 'bailian'
   return 'custom'
 }
 
@@ -470,6 +505,16 @@ function onLlmDraftProviderChange(provider) {
   llmConfigDraft.value.llm_model = preset.model
 }
 
+const activeLlmConfigSummary = computed(() => {
+  const target = activeLlmConfig.value
+  if (!target) return { provider: '-', model: '-', baseUrl: '-' }
+  return {
+    provider: llmProviderLabel(target.provider),
+    model: String(target.llm_model || '-'),
+    baseUrl: String(target.llm_base_url || '-'),
+  }
+})
+
 async function saveLlmConfigDraft() {
   const normalized = normalizeLlmConfig(llmConfigDraft.value, `LLM 配置 ${llmConfigs.value.length + 1}`)
   if (!normalized) {
@@ -615,18 +660,42 @@ function extractSublistBlocks(field, value) {
 }
 
 const vendorOptions = computed(() => {
-  const set = new Set(templates.value.map((x) => String(x.vendor || '').trim()).filter(Boolean))
-  if (set.size === 0) set.add(DEFAULT_VENDOR)
-  return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-CN'))
+  return buildVendorOptions(templates.value)
 })
+const docTypeOptionsForSelectedVendor = computed(() => buildDocTypeOptionsForVendor(templates.value, selectedVendor.value))
 const activeTemplate = computed(() => {
-  const vendor = String(selectedVendor.value || '').trim()
+  const vendor = normalizeVendorKey(selectedVendor.value)
   const docType = String(selectedDocType.value || '').trim()
-  return templates.value.find((x) => x && x.vendor === vendor && x.doc_type === docType) || null
+  return templates.value.find((x) => x && normalizeVendorKey(x.vendor) === vendor && x.doc_type === docType) || null
 })
 const templateEditorTitle = computed(() => (templateEditorMode.value === 'edit' ? '编辑模板' : '新增模板'))
 const activeTemplateFieldCount = computed(() => parsePromptFields(activeTemplate.value?.llm_prompt || '').length)
 const activeTemplateName = computed(() => (activeTemplate.value ? `${activeTemplate.value.vendor} · ${activeTemplate.value.doc_type}` : '未选择模板'))
+const templatePickerItems = computed(() => {
+  const query = String(templatePickerQuery.value || '').trim().toLowerCase()
+  return templates.value
+    .map((tpl) => {
+      const name = `${tpl.vendor} · ${tpl.doc_type}`
+      return {
+        ...tpl,
+        name,
+        fieldCount: parsePromptFields(tpl.llm_prompt).length,
+        ruleCount: parseRegionRulesSafe(tpl.region_rules).length,
+        active: normalizeVendorKey(tpl.vendor) === normalizeVendorKey(selectedVendor.value) && tpl.doc_type === selectedDocType.value,
+      }
+    })
+    .filter((tpl) => {
+      if (!query) return true
+      return `${tpl.name} ${tpl.llm_prompt || ''}`.toLowerCase().includes(query)
+    })
+})
+const extractionLaunchReview = computed(() => buildExtractionLaunchReview({
+  fileName: file.value?.name || '',
+  templateName: activeTemplateName.value,
+  fieldCount: activeTemplateFieldCount.value,
+  promptText: form.value.llm_prompt,
+  autoModeEnabled: autoModeEnabled.value,
+}))
 const activeResult = computed(() => {
   const fromHistory = historyDetail.value?.response
   if (fromHistory && typeof fromHistory === 'object') return fromHistory
@@ -726,6 +795,9 @@ const sublistBlocks = computed(() => {
   }
   return blocks
 })
+const sublistRowCount = computed(() => sublistBlocks.value.reduce((sum, block) => sum + block.rows.length, 0))
+const selectedFieldDetail = computed(() => buildFieldDetailView(selectedFieldDetailRow.value || {}))
+const selectedFieldLocateTexts = computed(() => collectLocateTexts(selectedFieldDetailRow.value?.raw, 10))
 const visibleRows = computed(() => {
   if (sublistBlocks.value.length === 0) return rows.value
   return rows.value.filter((row) => hasDetectedValue(row.raw))
@@ -738,8 +810,51 @@ const resultDescColumns = computed(() => {
   return 4
 })
 const submissionDraftSummary = computed(() => buildDraftSummary(submissionDraft.value))
+const workspaceModeLabel = computed(() => (autoModeEnabled.value ? '自动流水线' : '人工接管'))
+const workspaceReviewLabel = computed(() => {
+  if (submissionDraftSummary.value.submitStatus === 'succeeded') return '已填报'
+  if (submissionDraftSummary.value.hasReviewWarnings) {
+    return `缺失 ${submissionDraftSummary.value.missingCount} / 复核 ${submissionDraftSummary.value.reviewCount}`
+  }
+  return `明细 ${submissionDraftSummary.value.detailCount}`
+})
+const submissionPacketMeta = computed(() => {
+  const packet = submissionDraft.value?.meta?.packet
+  return packet && typeof packet === 'object' ? packet : {}
+})
+const submissionPacketReviewItems = computed(() => {
+  const packet = submissionPacketMeta.value
+  const fieldReviews = Array.isArray(packet.field_reviews) ? packet.field_reviews : []
+  const detailReviews = Array.isArray(packet.detail_reviews) ? packet.detail_reviews : []
+  const items = []
+  for (const review of fieldReviews) {
+    if (!review || typeof review !== 'object' || !review.review_required) continue
+    items.push({
+      key: `field_${review.field || items.length}`,
+      type: '字段',
+      title: String(review.field || '表头字段'),
+      description: String(review.reason || '存在多个来源候选值，需要人工确认'),
+    })
+  }
+  for (const review of detailReviews) {
+    if (!review || typeof review !== 'object' || !review.review_required) continue
+    const index = Number(review.detail_index)
+    const detailLabel = Number.isFinite(index) ? `明细 ${index + 1}` : '商品明细'
+    items.push({
+      key: `detail_${review.detail_index ?? items.length}`,
+      type: '数量',
+      title: detailLabel,
+      description: `发票 ${review.invoice_quantity || '-'} / 箱单 ${review.packing_quantity || '-'}`,
+    })
+  }
+  return items
+})
 const customsHeaderFields = CUSTOMS_HEADER_FIELDS
 const customsDetailFields = CUSTOMS_DETAIL_FIELDS
+const visibleCustomsHeaderFields = computed(() => (
+  submissionExtraFieldsVisible.value ? customsHeaderFields : customsHeaderFields.slice(0, 6)
+))
+const hiddenCustomsHeaderFieldCount = computed(() => Math.max(0, customsHeaderFields.length - visibleCustomsHeaderFields.value.length))
 const activeAutoModeEnabled = computed(() => Boolean(activeTaskDetail.value?.result?.auto_mode_enabled || activeResult.value?.submission?.meta?.auto_mode_enabled || autoModeEnabled.value))
 const activeAutoModeStatus = computed(() => String(activeTaskDetail.value?.result?.auto_mode_status || activeResult.value?.submission?.meta?.submit_status || 'idle'))
 const activeAutoModeMessage = computed(() => String(activeTaskDetail.value?.result?.auto_mode_message || activeResult.value?.submission?.meta?.submit_message || ''))
@@ -786,8 +901,7 @@ const evidenceAssetFiles = computed(() => parseFiles.value.filter((file) => {
 }))
 const selectedHistoryFileType = computed(() => classifyEvidenceFile(selectedHistoryFile.value))
 const originalPreviewFile = computed(() => {
-  if (selectedHistoryFile.value && ['pdf', 'image'].includes(selectedHistoryFileType.value)) return selectedHistoryFile.value
-  return primaryOriginalHistoryFile.value
+  return resolveOriginalPreviewFile(selectedHistoryFile.value, primaryOriginalHistoryFile.value)
 })
 const originalPreviewType = computed(() => classifyEvidenceFile(originalPreviewFile.value))
 const originalPreviewUrl = computed(() => {
@@ -807,10 +921,15 @@ const historyFileHtml = computed(() => {
   return renderHistoryMarkdown(raw || '暂无文件内容', selectedHistoryFile.value?.path || '')
 })
 const previewHtml = computed(() => {
-  const fromResponse = String(activeResult.value?.preview || '').trim()
   const fromFullMd = String(fullMdContent.value || '').trim()
+  const fromResponse = String(activeResult.value?.preview || '').trim()
+  const preferredBase = choosePreferredMarkdownPreview({
+    ocrEngine: activeResult.value?.ocr_engine,
+    markdownContent: fromFullMd,
+    fallbackText: fromResponse,
+  })
   const hasMarginBlock = (text) => /(^|\n)##\s*页眉页脚\b|页眉:\s*|页脚:\s*/.test(String(text || ''))
-  let raw = fromResponse.length >= fromFullMd.length ? fromResponse : fromFullMd
+  let raw = preferredBase || (fromResponse.length >= fromFullMd.length ? fromResponse : fromFullMd)
   if (hasMarginBlock(fromResponse) && !hasMarginBlock(fromFullMd)) raw = fromResponse
   if (hasMarginBlock(fromFullMd) && !hasMarginBlock(fromResponse)) raw = fromFullMd
   if (!hasMarginBlock(raw) && Array.isArray(historyPageMarginsPages.value) && historyPageMarginsPages.value.length > 0) {
@@ -838,12 +957,37 @@ const visibleSampleRules = computed(() =>
 )
 watch([selectedVendor, selectedDocType], () => {
   if (templatesLoading.value) return
+  if (!String(selectedVendor.value || '').trim()) return
+  const resolvedDocType = resolveDocTypeForVendor(
+    templates.value,
+    selectedVendor.value,
+    selectedDocType.value,
+  )
+  if (resolvedDocType !== selectedDocType.value) {
+    selectedDocType.value = resolvedDocType
+    return
+  }
   const tpl = activeTemplate.value
   if (!tpl) {
     pushToast(`未找到「${selectedVendor.value} - ${selectedDocType.value}」模板，请先在模板管理中创建`, 'warning', 2600)
     return
   }
   applyTemplateToForm(tpl)
+}, { immediate: true })
+
+watch(selectedVendor, (vendor) => {
+  if (!String(vendor || '').trim()) {
+    selectedDocType.value = ''
+    return
+  }
+  selectedDocType.value = resolveDocTypeForVendor(templates.value, vendor, selectedDocType.value)
+}, { immediate: true })
+
+watch(docTypeOptionsForSelectedVendor, (options) => {
+  if (!String(selectedVendor.value || '').trim()) return
+  if (!options.includes(selectedDocType.value)) {
+    selectedDocType.value = resolveDocTypeForVendor(templates.value, selectedVendor.value, selectedDocType.value)
+  }
 }, { immediate: true })
 
 watch(currentNav, (nav) => {
@@ -884,6 +1028,7 @@ function getDefaultTemplates() {
       doc_type: '到货单',
       llm_prompt: '请提取到货单关键信息，以 JSON 返回：{"通知书编号":"","供应商名称":"","到货日期":"","采购订单号":"","商品明细":[{}]}。如存在多项商品，请在“商品明细”数组中逐项输出，每项字段按单据原文提取且不固定；无明细返回空数组 []。',
       region_rules: '',
+      ocr_engine: FIXED_WORKSPACE_OCR_ENGINE,
       backend: DEFAULT_MODEL_VERSION,
       parse_method: DEFAULT_PARSE_METHOD,
       lang_list: DEFAULT_LANG_LIST,
@@ -894,6 +1039,7 @@ function getDefaultTemplates() {
       doc_type: '物流通知书',
       llm_prompt: '请提取物流通知书信息，以 JSON 返回：{"通知日期":"","承运商":"","车牌号":"","起运地":"","目的地":"","预计到厂时间":"","联系人":"","联系电话":"","商品明细":[{}]}。如存在多项商品，请在“商品明细”数组中逐项输出，每项字段按单据原文提取且不固定；无明细返回空数组 []。',
       region_rules: '',
+      ocr_engine: FIXED_WORKSPACE_OCR_ENGINE,
       backend: DEFAULT_MODEL_VERSION,
       parse_method: DEFAULT_PARSE_METHOD,
       lang_list: DEFAULT_LANG_LIST,
@@ -904,6 +1050,7 @@ function getDefaultTemplates() {
       doc_type: '送货单',
       llm_prompt: '请提取送货单关键信息，以 JSON 返回：{"送货单号":"","供应商代码":"","收货单位":"","送货日期":"","商品明细":[{}]}。如存在多项商品，请在“商品明细”数组中逐项输出，每项字段按单据原文提取且不固定；无明细返回空数组 []。',
       region_rules: '',
+      ocr_engine: FIXED_WORKSPACE_OCR_ENGINE,
       backend: DEFAULT_MODEL_VERSION,
       parse_method: DEFAULT_PARSE_METHOD,
       lang_list: DEFAULT_LANG_LIST,
@@ -914,6 +1061,18 @@ function getDefaultTemplates() {
       doc_type: '发票',
       llm_prompt: '请从发票文本中提取信息，以 JSON 返回：{"发票号":"","开票日期":"","价税合计":"","购买方名称":""}',
       region_rules: '',
+      ocr_engine: FIXED_WORKSPACE_OCR_ENGINE,
+      backend: DEFAULT_MODEL_VERSION,
+      parse_method: DEFAULT_PARSE_METHOD,
+      lang_list: DEFAULT_LANG_LIST,
+    },
+    {
+      id: createId(),
+      vendor: '嘉盛半导体',
+      doc_type: '报关单',
+      llm_prompt: '请提取报关单关键信息，以 JSON 返回：{"报关单号":"","申报日期":"","境内收发货人":"","消费使用单位":"","贸易方式":"","商品明细":[{}]}。如存在多项商品，请在“商品明细”数组中逐项输出，每项字段按单据原文提取且不固定；无明细返回空数组 []。',
+      region_rules: '',
+      ocr_engine: FIXED_WORKSPACE_OCR_ENGINE,
       backend: DEFAULT_MODEL_VERSION,
       parse_method: DEFAULT_PARSE_METHOD,
       lang_list: DEFAULT_LANG_LIST,
@@ -927,13 +1086,14 @@ function normalizeTemplateItem(item) {
   const parseMethod = PARSE_METHODS.includes(item.parse_method) ? item.parse_method : DEFAULT_PARSE_METHOD
   const vendor = typeof item.vendor === 'string' && item.vendor.trim()
     ? item.vendor.trim()
-    : (typeof item.name === 'string' && item.name.trim() ? item.name.trim() : DEFAULT_VENDOR)
+    : (typeof item.name === 'string' && item.name.trim() ? item.name.trim() : '')
   return {
     id: typeof item.id === 'string' && item.id ? item.id : createId(),
     vendor,
     doc_type: docType,
     llm_prompt: sanitizeLegacyPrompt(typeof item.llm_prompt === 'string' ? item.llm_prompt : ''),
     region_rules: typeof item.region_rules === 'string' ? item.region_rules : '',
+    ocr_engine: normalizeTemplateOcrEngine(item),
     backend: typeof item.backend === 'string' && item.backend ? item.backend : DEFAULT_MODEL_VERSION,
     parse_method: parseMethod,
     lang_list: typeof item.lang_list === 'string' && item.lang_list ? item.lang_list : DEFAULT_LANG_LIST,
@@ -962,15 +1122,26 @@ function applyLoadedTemplates(source, keepCurrentSelection = true) {
   const previousDocType = selectedDocType.value
   const normalized = loadTemplates(source)
   templates.value = normalized
-  let target = null
-  if (keepCurrentSelection) {
-    target = normalized.find((x) => x.vendor === previousVendor && x.doc_type === previousDocType) || null
+  const nextSelection = chooseTemplateSelection({
+    templates: normalized,
+    previousVendor,
+    previousDocType,
+    keepCurrentSelection,
+    fallbackDocType: DOC_TYPES[0],
+  })
+  selectedVendor.value = nextSelection.vendor
+  selectedDocType.value = nextSelection.docType || DOC_TYPES[0]
+  if (nextSelection.matchedTemplate) {
+    applyTemplateToForm(nextSelection.matchedTemplate)
+    return
   }
-  if (!target) target = normalized[0] || null
-  if (target) {
-    selectTemplatePair(target.vendor, target.doc_type)
-    applyTemplateToForm(target)
-  }
+  form.value.llm_prompt = ''
+  form.value.region_rules = ''
+  form.value.ocr_engine = FIXED_WORKSPACE_OCR_ENGINE
+  form.value.backend = DEFAULT_MODEL_VERSION
+  form.value.parse_method = DEFAULT_PARSE_METHOD
+  form.value.lang_list = DEFAULT_LANG_LIST
+  templateFieldItems.value = []
 }
 
 async function loadTemplatesFromServer(withToast = false) {
@@ -1021,6 +1192,7 @@ function applyTemplateToForm(tpl) {
   if (!tpl) return
   form.value.llm_prompt = tpl.llm_prompt || ''
   form.value.region_rules = tpl.region_rules || ''
+  form.value.ocr_engine = FIXED_WORKSPACE_OCR_ENGINE
   form.value.backend = tpl.backend || DEFAULT_MODEL_VERSION
   form.value.parse_method = PARSE_METHODS.includes(tpl.parse_method) ? tpl.parse_method : DEFAULT_PARSE_METHOD
   form.value.lang_list = String(tpl.lang_list || DEFAULT_LANG_LIST)
@@ -1034,7 +1206,7 @@ function selectTemplatePair(vendor, docType) {
 
 function templateRowClass({ row }) {
   if (!row) return ''
-  return row.vendor === selectedVendor.value && row.doc_type === selectedDocType.value ? 'is-current-template' : ''
+  return normalizeVendorKey(row.vendor) === normalizeVendorKey(selectedVendor.value) && row.doc_type === selectedDocType.value ? 'is-current-template' : ''
 }
 
 async function refreshTemplateBoard() {
@@ -1046,8 +1218,25 @@ function activateTemplateRow(row) {
   selectTemplatePair(row.vendor, row.doc_type)
 }
 
+function openTemplatePicker() {
+  templatePickerQuery.value = ''
+  templatePickerVisible.value = true
+}
+
+function selectTemplateFromPicker(row) {
+  if (!row) return
+  activateTemplateRow(row)
+  templatePickerVisible.value = false
+  pushToast(`已选择模板「${row.vendor} · ${row.doc_type}」`, 'success', 1800)
+}
+
+function editTemplateFromPicker(row) {
+  templatePickerVisible.value = false
+  openEditTemplateEditor(row)
+}
+
 function findTemplate(vendor, docType) {
-  return templates.value.find((x) => x.vendor === vendor && x.doc_type === docType) || null
+  return templates.value.find((x) => normalizeVendorKey(x.vendor) === normalizeVendorKey(vendor) && x.doc_type === docType) || null
 }
 
 function buildTemplatePayloadFromForm(vendor, docType, existingId = '') {
@@ -1057,6 +1246,7 @@ function buildTemplatePayloadFromForm(vendor, docType, existingId = '') {
     doc_type: docType,
     llm_prompt: form.value.llm_prompt,
     region_rules: form.value.region_rules,
+    ocr_engine: FIXED_WORKSPACE_OCR_ENGINE,
     backend: form.value.backend || DEFAULT_MODEL_VERSION,
     parse_method: PARSE_METHODS.includes(form.value.parse_method) ? form.value.parse_method : DEFAULT_PARSE_METHOD,
     lang_list: form.value.lang_list || DEFAULT_LANG_LIST,
@@ -1068,6 +1258,7 @@ function snapshotEditorState() {
     form: {
       llm_prompt: form.value.llm_prompt,
       region_rules: form.value.region_rules,
+      ocr_engine: FIXED_WORKSPACE_OCR_ENGINE,
       backend: form.value.backend,
       parse_method: form.value.parse_method,
       lang_list: form.value.lang_list,
@@ -1082,6 +1273,7 @@ function restoreEditorState(snapshot) {
   if (!snapshot || typeof snapshot !== 'object') return
   form.value.llm_prompt = snapshot.form?.llm_prompt || ''
   form.value.region_rules = snapshot.form?.region_rules || ''
+  form.value.ocr_engine = FIXED_WORKSPACE_OCR_ENGINE
   form.value.backend = snapshot.form?.backend || DEFAULT_MODEL_VERSION
   form.value.parse_method = PARSE_METHODS.includes(snapshot.form?.parse_method) ? snapshot.form.parse_method : DEFAULT_PARSE_METHOD
   form.value.lang_list = snapshot.form?.lang_list || DEFAULT_LANG_LIST
@@ -1096,6 +1288,7 @@ function resetTemplateEditorState() {
   templateFieldItems.value = []
   form.value.llm_prompt = ''
   form.value.region_rules = ''
+  form.value.ocr_engine = FIXED_WORKSPACE_OCR_ENGINE
   form.value.backend = DEFAULT_MODEL_VERSION
   form.value.parse_method = DEFAULT_PARSE_METHOD
   form.value.lang_list = DEFAULT_LANG_LIST
@@ -1107,7 +1300,7 @@ function openCreateTemplateEditor() {
   templateEditorCommitted.value = false
   templateEditorMode.value = 'create'
   editingTemplateKey.value = ''
-  templateDraft.value.vendor = selectedVendor.value || DEFAULT_VENDOR
+  templateDraft.value.vendor = ''
   templateDraft.value.doc_type = selectedDocType.value || DOC_TYPES[0]
   resetTemplateEditorState()
   templateEditorVisible.value = true
@@ -1233,6 +1426,30 @@ function pushToast(message, type = 'info', ttl = 3500) {
     duration: ttl,
     showClose: true,
   })
+}
+
+async function refreshCurrentWorkspace() {
+  if (currentNav.value === 'result') {
+    await Promise.all([loadTaskList(true), loadHistoryList(false)])
+    pushToast('结果中心已刷新', 'success', 1800)
+    return
+  }
+  if (currentNav.value === 'settings') {
+    await loadLlmSettingsFromServer()
+    pushToast('系统设置已刷新', 'success', 1800)
+    return
+  }
+  if (currentNav.value === 'extract') {
+    await Promise.all([loadTaskList(true), loadTemplatesFromServer(false)])
+    pushToast('提取工作台已刷新', 'success', 1800)
+    return
+  }
+  await loadTemplatesFromServer(false)
+  pushToast('模板中心已刷新', 'success', 1800)
+}
+
+function showNotificationHint() {
+  pushToast('暂无新的系统通知', 'info', 1800)
 }
 
 function humanFileSize(bytes) {
@@ -1639,6 +1856,19 @@ function downloadResult() {
   URL.revokeObjectURL(url)
 }
 
+function openFieldDetail(row) {
+  selectedFieldDetailRow.value = row || null
+  fieldDetailVisible.value = Boolean(row)
+}
+
+async function locateSelectedFieldDetail() {
+  const row = selectedFieldDetailRow.value
+  if (!row) return
+  fieldDetailVisible.value = false
+  await nextTick()
+  await jumpToField(row)
+}
+
 function encodePath(path) {
   return String(path || '')
     .split('/')
@@ -1921,6 +2151,14 @@ async function jumpToField(row) {
   if (!key || candidates.length === 0) {
     pushToast('该字段暂无命中内容，无法定位', 'warning')
     return
+  }
+  if (resultWorkspaceTab.value !== 'evidence') {
+    resultWorkspaceTab.value = 'evidence'
+    await nextTick()
+  }
+  if (hasMarkdownPreview.value && resultEvidenceTab.value !== 'markdown') {
+    resultEvidenceTab.value = 'markdown'
+    await nextTick()
   }
   if (previewCollapsed.value) {
     previewCollapsed.value = false
@@ -2325,14 +2563,7 @@ async function submitSubmissionDraft() {
 }
 
 function pickFullMdFile(files) {
-  if (!Array.isArray(files) || files.length === 0) return null
-  const normalized = files.filter((x) => x && typeof x.path === 'string')
-  if (normalized.length === 0) return null
-  const exact = normalized.find((x) => x.path.toLowerCase() === 'full.md')
-  if (exact) return exact
-  const withSlash = normalized.find((x) => x.path.toLowerCase().endsWith('/full.md'))
-  if (withSlash) return withSlash
-  return null
+  return pickPrimaryMarkdownFile(files)
 }
 
 async function loadFullMdPreview(recordId, files) {
@@ -2600,9 +2831,31 @@ function inferFieldsForLegacyBackend(promptText) {
   return ''
 }
 
+function openExtractConfirmDialog() {
+  extractConfirmVisible.value = true
+}
+
+async function confirmExtractLaunch() {
+  if (!extractionLaunchReview.value.ready) {
+    pushToast('请先补齐提取前检查项', 'warning')
+    return
+  }
+  extractConfirmVisible.value = false
+  await nextTick()
+  await submitForm()
+}
+
 async function submitForm() {
   if (!file.value) {
     pushToast('请先选择文件', 'warning')
+    return
+  }
+  if (!String(selectedVendor.value || '').trim()) {
+    pushToast('请先选择当前厂商', 'warning')
+    return
+  }
+  if (!String(selectedDocType.value || '').trim()) {
+    pushToast('请先选择当前单据类型', 'warning')
     return
   }
   if (!form.value.llm_prompt.trim()) {
@@ -2615,18 +2868,16 @@ async function submitForm() {
     const fd = new FormData()
     const legacyFields = inferFieldsForLegacyBackend(form.value.llm_prompt)
     fd.append('file', file.value)
-    fd.append('vendor', String(selectedVendor.value || '').trim())
-    fd.append('doc_type', String(selectedDocType.value || '').trim())
+    const requestFields = buildExtractRequestFields({
+      ...form.value,
+      vendor: String(selectedVendor.value || '').trim(),
+      doc_type: String(selectedDocType.value || '').trim(),
+      llm_prompt: ensureSublistPromptInstruction(form.value.llm_prompt),
+    })
+    for (const [key, value] of requestFields) {
+      fd.append(key, value)
+    }
     if (legacyFields.trim()) fd.append('fields', legacyFields)
-    fd.append('llm_prompt', ensureSublistPromptInstruction(form.value.llm_prompt))
-    fd.append('llm_base_url', String(form.value.llm_base_url || '').trim())
-    fd.append('llm_model', String(form.value.llm_model || '').trim())
-    fd.append('llm_api_key', String(form.value.llm_api_key || ''))
-    fd.append('region_rules', form.value.region_rules)
-    fd.append('mineru_model_version', form.value.backend || DEFAULT_MODEL_VERSION)
-    fd.append('backend', form.value.backend || DEFAULT_MODEL_VERSION)
-    fd.append('parse_method', form.value.parse_method || DEFAULT_PARSE_METHOD)
-    fd.append('lang_list', form.value.lang_list || DEFAULT_LANG_LIST)
 
     const resp = await fetch('/api/extract/submit', {
       method: 'POST',
@@ -2699,8 +2950,14 @@ onBeforeUnmount(() => {
       </div>
 
       <el-menu class="ep-nav" :default-active="currentNav" @select="(key) => { currentNav = String(key) }">
-        <el-menu-item v-for="item in NAV_ITEMS" :key="item.key" :index="item.key">
-          {{ item.label }}
+        <el-menu-item v-for="(item, idx) in NAV_ITEMS" :key="item.key" :index="item.key">
+          <div class="nav-content">
+            <span class="nav-index">{{ idx + 1 }}</span>
+            <span class="nav-copy">
+              <strong>{{ item.label }}</strong>
+              <small>{{ item.desc }}</small>
+            </span>
+          </div>
         </el-menu-item>
       </el-menu>
 
@@ -2715,6 +2972,35 @@ onBeforeUnmount(() => {
 
     <el-container class="ep-main">
       <el-main class="ep-content">
+        <div class="workspace-topbar">
+          <div class="workspace-topbar-title">
+            <span class="status-dot" :class="{ live: submitting || submissionDraftLoading || customsSubmitting }" />
+            <div>
+              <p>{{ currentNavItem.desc }}</p>
+              <strong>{{ currentNavItem.label }}</strong>
+            </div>
+          </div>
+          <div class="workspace-topbar-right">
+            <div class="workspace-context">
+              <span class="context-item">模板 <strong>{{ activeTemplateName }}</strong></span>
+              <span class="context-item">模式 <strong>{{ workspaceModeLabel }}</strong></span>
+              <span class="context-item" :class="{ warning: submissionDraftSummary.hasReviewWarnings }">状态 <strong>{{ workspaceReviewLabel }}</strong></span>
+            </div>
+            <div class="workspace-actions">
+              <el-button circle aria-label="刷新当前工作区" @click="refreshCurrentWorkspace">
+                <el-icon><RefreshRight /></el-icon>
+              </el-button>
+              <el-button circle aria-label="通知" @click="showNotificationHint">
+                <el-icon><Bell /></el-icon>
+              </el-button>
+              <span class="workspace-avatar" aria-label="当前用户">
+                <el-icon><UserFilled /></el-icon>
+                <strong>Admin</strong>
+              </span>
+            </div>
+          </div>
+        </div>
+
         <section v-show="currentNav === 'template'" class="ep-section">
           <div class="section-hero">
             <div>
@@ -2796,7 +3082,7 @@ onBeforeUnmount(() => {
               <el-row :gutter="14">
                 <el-col :xs="24" :lg="12">
                   <el-form-item label="厂商名称">
-                    <el-input v-model.trim="templateDraft.vendor" placeholder="例如：嘉盛半导体" />
+                    <el-input v-model.trim="templateDraft.vendor" placeholder="必须手工选择或输入厂商" />
                   </el-form-item>
                 </el-col>
                 <el-col :xs="24" :lg="12">
@@ -2808,7 +3094,7 @@ onBeforeUnmount(() => {
                 </el-col>
               </el-row>
               <el-row :gutter="14">
-                <el-col :xs="24" :lg="8">
+                <el-col :xs="24" :lg="6">
                   <el-form-item label="model_version">
                     <el-select v-model="form.backend" class="w-full">
                       <el-option label="vlm" value="vlm" />
@@ -2816,14 +3102,14 @@ onBeforeUnmount(() => {
                     </el-select>
                   </el-form-item>
                 </el-col>
-                <el-col :xs="24" :lg="8">
+                <el-col :xs="24" :lg="6">
                   <el-form-item label="parse_method">
                     <el-select v-model="form.parse_method" class="w-full">
                       <el-option v-for="item in PARSE_METHODS" :key="item" :label="item" :value="item" />
                     </el-select>
                   </el-form-item>
                 </el-col>
-                <el-col :xs="24" :lg="8">
+                <el-col :xs="24" :lg="6">
                   <el-form-item label="lang_list">
                     <el-input v-model.trim="form.lang_list" placeholder="如：en 或 en,ch" />
                   </el-form-item>
@@ -3000,25 +3286,30 @@ onBeforeUnmount(() => {
               show-icon
             />
 
-            <el-form label-position="top" class="top-gap" @submit.prevent="submitForm">
+            <el-form label-position="top" class="top-gap" @submit.prevent="openExtractConfirmDialog">
               <el-steps :active="extractStepActive" align-center finish-status="success" class="extract-steps">
                 <el-step title="选择模板" />
                 <el-step title="上传文件与提示词" />
                 <el-step title="执行提取" />
               </el-steps>
 
-              <el-row :gutter="14" class="ep-row-gap">
+              <el-row :gutter="14" class="ep-row-gap extract-control-grid">
                 <el-col :xs="24" :xl="8">
                   <el-card class="panel-card" shadow="never">
                     <template #header><div class="ep-card-head">提取参数</div></template>
                     <el-form-item label="当前厂商">
-                      <el-select v-model="selectedVendor" class="w-full">
+                      <el-select v-model="selectedVendor" class="w-full" clearable placeholder="必须先选择厂商">
                         <el-option v-for="vendor in vendorOptions" :key="vendor" :label="vendor" :value="vendor" />
                       </el-select>
                     </el-form-item>
                     <el-form-item label="当前单据类型">
-                      <el-select v-model="selectedDocType" class="w-full">
-                        <el-option v-for="t in DOC_TYPES" :key="t" :label="t" :value="t" />
+                      <el-select
+                        v-model="selectedDocType"
+                        class="w-full"
+                        :disabled="!selectedVendor"
+                        placeholder="请先选择厂商"
+                      >
+                        <el-option v-for="t in docTypeOptionsForSelectedVendor" :key="t" :label="t" :value="t" />
                       </el-select>
                     </el-form-item>
                     <div class="fixed-config-list">
@@ -3026,24 +3317,25 @@ onBeforeUnmount(() => {
                       <el-tag type="info">parse_method: {{ form.parse_method || '-' }}</el-tag>
                       <el-tag type="info">lang_list: {{ form.lang_list || '-' }}</el-tag>
                     </div>
-                    <el-button plain class="w-full" @click="currentNav = 'template'">前往模板管理</el-button>
+                    <el-button type="primary" plain class="w-full" @click="openTemplatePicker">选择模板</el-button>
+                    <el-button plain class="w-full top-gap-xs" @click="currentNav = 'template'">前往模板管理</el-button>
                   </el-card>
                 </el-col>
 
                 <el-col :xs="24" :xl="16">
                   <el-card class="panel-card" shadow="never">
                     <template #header><div class="ep-card-head">上传与提示词</div></template>
-                    <el-row :gutter="12">
-                      <el-col :xs="24" :lg="10">
+                    <el-tabs v-model="extractWorkspaceTab" class="workspace-tabs extract-workspace-tabs">
+                      <el-tab-pane label="文件上传" name="upload">
                         <el-form-item label="文件上传">
-                          <p class="field-hint">支持 PDF、图片与 Office。每次提取建议仅上传一个文件。</p>
+                          <p class="field-hint">支持 PDF、图片、Office 与 Excel（.xlsx）。每次提取建议仅上传一个文件。</p>
                           <el-upload
                             class="extract-uploader"
                             drag
                             action="#"
                             :auto-upload="false"
                             :show-file-list="false"
-                            accept=".pdf,.png,.jpg,.jpeg,.tiff,.bmp,.gif,.doc,.docx,.ppt,.pptx"
+                            :accept="EXTRACT_UPLOAD_ACCEPT"
                             :on-change="onExtractUploadChange"
                           >
                             <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
@@ -3057,19 +3349,19 @@ onBeforeUnmount(() => {
                             <el-button text type="danger" @click="removeFile">移除</el-button>
                           </div>
                         </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :lg="14">
+                      </el-tab-pane>
+                      <el-tab-pane label="提示词" name="prompt">
                         <el-form-item label="大模型提取提示词">
                           <p class="field-hint">建议直接定义输出字段和 JSON 结构，以获得稳定结果。</p>
                           <el-input
                             v-model="form.llm_prompt"
                             type="textarea"
-                            :rows="14"
+                            :rows="12"
                             placeholder="例如：请从物流通知书 Markdown 文本中提取 物流单号、承运商、预计到厂时间、联系人，并返回 JSON 对象。"
                           />
                         </el-form-item>
-                      </el-col>
-                    </el-row>
+                      </el-tab-pane>
+                    </el-tabs>
                   </el-card>
                 </el-col>
               </el-row>
@@ -3081,15 +3373,119 @@ onBeforeUnmount(() => {
                   <span>{{ autoModeEnabled ? '上传后继续执行提取、映射和填报' : '上传后停在识别结果，等待你检查与提交' }}</span>
                 </div>
                 <el-button :disabled="!file" @click="removeFile">清空文件</el-button>
-                <el-button type="primary" :loading="submitting" @click="submitForm">
+                <el-button type="primary" :loading="submitting" @click="openExtractConfirmDialog">
                   {{ submitting ? '提交中...' : '开始提取' }}
                 </el-button>
               </div>
             </el-form>
           </el-card>
+
+          <el-dialog
+            v-model="templatePickerVisible"
+            title="选择识别模板"
+            class="layer-dialog template-picker-dialog"
+            width="min(920px, 94vw)"
+            top="4vh"
+            append-to-body
+          >
+            <div class="layer-dialog-intro">
+              <div>
+                <p class="section-kicker">Template Picker</p>
+                <h4>选择本次文件要使用的模板</h4>
+                <p>优先选择和客户资料、单据类型一致的模板。选择后会同步提示词、字段和区域规则。</p>
+              </div>
+              <el-tag type="info">模板 {{ templates.length }}</el-tag>
+            </div>
+
+            <el-input
+              v-model="templatePickerQuery"
+              class="template-picker-search"
+              clearable
+              placeholder="搜索厂商、单据类型或提示词"
+            />
+
+            <div v-if="templatePickerItems.length > 0" class="template-picker-grid">
+              <div
+                v-for="tpl in templatePickerItems"
+                :key="`${tpl.vendor}_${tpl.doc_type}`"
+                class="template-picker-card"
+                :class="{ active: tpl.active }"
+                role="button"
+                tabindex="0"
+                @click="selectTemplateFromPicker(tpl)"
+                @keydown.enter.prevent="selectTemplateFromPicker(tpl)"
+                @keydown.space.prevent="selectTemplateFromPicker(tpl)"
+              >
+                <span class="template-picker-state">{{ tpl.active ? '当前模板' : '可选择' }}</span>
+                <strong>{{ tpl.name }}</strong>
+                <p>{{ tpl.fieldCount > 0 ? `包含 ${tpl.fieldCount} 个提取字段` : '该模板暂未维护字段' }}</p>
+                <div class="template-picker-meta">
+                  <el-tag size="small" type="success">字段 {{ tpl.fieldCount }}</el-tag>
+                  <el-tag size="small" type="info">规则 {{ tpl.ruleCount }}</el-tag>
+                  <el-button text type="primary" @click.stop="editTemplateFromPicker(tpl)">编辑</el-button>
+                </div>
+              </div>
+            </div>
+            <el-empty v-else description="没有匹配的模板" />
+
+            <template #footer>
+              <div class="ep-inline-actions">
+                <el-button @click="templatePickerVisible = false">关闭</el-button>
+                <el-button type="primary" plain @click="templatePickerVisible = false; currentNav = 'template'">前往模板管理</el-button>
+              </div>
+            </template>
+          </el-dialog>
+
+          <el-dialog
+            v-model="extractConfirmVisible"
+            title="开始提取前确认"
+            class="layer-dialog extract-confirm-dialog"
+            width="min(760px, 94vw)"
+            top="6vh"
+            append-to-body
+          >
+            <div class="launch-review-head">
+              <div>
+                <p class="section-kicker">Launch Review</p>
+                <h4>{{ extractionLaunchReview.ready ? '检查通过，可以开始提取' : '还有检查项需要处理' }}</h4>
+                <p>{{ extractionLaunchReview.modeLabel }} · {{ extractionLaunchReview.ready ? '提交后会创建后台任务' : `剩余 ${extractionLaunchReview.blockerCount} 项未完成` }}</p>
+              </div>
+              <el-tag :type="extractionLaunchReview.ready ? 'success' : 'danger'">
+                {{ extractionLaunchReview.ready ? 'Ready' : 'Blocked' }}
+              </el-tag>
+            </div>
+            <div class="launch-review-list">
+              <div
+                v-for="item in extractionLaunchReview.items"
+                :key="item.key"
+                class="launch-review-item"
+                :class="item.status"
+              >
+                <span class="launch-review-mark">{{ item.status === 'success' ? '✓' : item.status === 'error' ? '!' : 'i' }}</span>
+                <div>
+                  <strong>{{ item.title }}</strong>
+                  <p>{{ item.description }}</p>
+                </div>
+              </div>
+            </div>
+            <template #footer>
+              <div class="ep-inline-actions">
+                <el-button @click="extractConfirmVisible = false">取消</el-button>
+                <el-button v-if="!extractionLaunchReview.ready" plain @click="extractConfirmVisible = false; openTemplatePicker()">选择模板</el-button>
+                <el-button
+                  type="primary"
+                  :disabled="!extractionLaunchReview.ready"
+                  :loading="submitting"
+                  @click="confirmExtractLaunch"
+                >
+                  {{ extractionLaunchReview.primaryLabel }}
+                </el-button>
+              </div>
+            </template>
+          </el-dialog>
         </section>
 
-        <section v-show="currentNav === 'result'" class="ep-section">
+        <section v-show="currentNav === 'result'" class="ep-section result-section">
           <div class="section-hero">
             <div>
               <p class="section-kicker">Result Center</p>
@@ -3195,8 +3591,8 @@ onBeforeUnmount(() => {
                       <span class="case-pill">模板 {{ activeResultTemplateName }}</span>
                       <span class="case-pill">模型 {{ activeResult.model_version || activeResult.backend || '-' }}</span>
                       <span class="case-pill">记录 {{ historyDetail?.created_at ? formatTime(historyDetail.created_at) : '-' }}</span>
-                      <span class="case-pill" :class="{ success: submissionDraftSummary.submitStatus === 'succeeded', warning: submissionDraftSummary.missingCount > 0 }">
-                        {{ submissionDraftSummary.submitStatus === 'succeeded' ? '已填报' : `缺失 ${submissionDraftSummary.missingCount}` }}
+                      <span class="case-pill" :class="{ success: submissionDraftSummary.submitStatus === 'succeeded', warning: submissionDraftSummary.hasReviewWarnings }">
+                        {{ workspaceReviewLabel }}
                       </span>
                     </div>
                   </div>
@@ -3224,6 +3620,8 @@ onBeforeUnmount(() => {
 
                   <div class="result-workspace-grid top-gap">
                     <div class="workspace-primary">
+                      <el-tabs v-model="resultWorkspaceTab" class="workspace-tabs result-workspace-tabs">
+                        <el-tab-pane label="字段结果" name="fields">
                       <el-card shadow="never" class="workspace-panel">
                         <template #header>
                           <div class="ep-card-head spread">
@@ -3241,13 +3639,23 @@ onBeforeUnmount(() => {
                             :key="row.key"
                             class="result-field-item"
                           >
-                            <button type="button" class="result-field-jump" @click="jumpToField(row)">
+                            <div
+                              class="result-field-jump"
+                              role="button"
+                              tabindex="0"
+                              @click="jumpToField(row)"
+                              @keydown.enter.prevent="jumpToField(row)"
+                              @keydown.space.prevent="jumpToField(row)"
+                            >
                               <div class="result-field-item-head">
                                 <span class="result-field-item-label">字段</span>
-                                <el-tag :type="hasDetectedValue(row.raw) ? 'success' : 'info'" size="small">{{ hasDetectedValue(row.raw) ? '已命中' : '未识别' }}</el-tag>
+                                <span class="result-field-actions">
+                                  <el-tag :type="hasDetectedValue(row.raw) ? 'success' : 'info'" size="small">{{ hasDetectedValue(row.raw) ? '已命中' : '未识别' }}</el-tag>
+                                  <el-button text type="primary" @click.stop="openFieldDetail(row)">详情</el-button>
+                                </span>
                               </div>
                               <div class="result-key-cell">{{ row.key }}</div>
-                            </button>
+                            </div>
                             <div class="result-value-block">
                               <span class="result-field-item-label">值</span>
                               <div class="result-value-cell">{{ row.value || '-' }}</div>
@@ -3255,11 +3663,21 @@ onBeforeUnmount(() => {
                           </div>
                         </div>
                       </el-card>
+                        </el-tab-pane>
 
+                        <el-tab-pane label="商品明细" name="goods">
                       <el-card v-if="sublistBlocks.length > 0" shadow="never" class="workspace-panel">
                         <template #header>
-                          <div class="ep-card-head">
+                          <div class="ep-card-head spread">
                             <span>商品明细</span>
+                            <div class="ep-inline-actions">
+                              <el-tag type="success">命中 {{ sublistRowCount }}</el-tag>
+                              <el-tag type="warning">缺失 0</el-tag>
+                              <el-button text type="primary" @click="downloadResult">
+                                <el-icon><Download /></el-icon>
+                                导出
+                              </el-button>
+                            </div>
                           </div>
                         </template>
                         <div v-for="block in sublistBlocks" :key="block.field" class="top-gap-xs">
@@ -3277,7 +3695,10 @@ onBeforeUnmount(() => {
                           </el-table>
                         </div>
                       </el-card>
+                          <el-empty v-else description="当前记录没有商品明细" />
+                        </el-tab-pane>
 
+                        <el-tab-pane label="证据面板" name="evidence">
                       <el-card shadow="never" class="workspace-panel">
                         <template #header>
                           <div class="ep-card-head spread">
@@ -3378,6 +3799,8 @@ onBeforeUnmount(() => {
                           <el-empty v-else description="当前记录没有额外产物文件" />
                         </template>
                       </el-card>
+                        </el-tab-pane>
+                      </el-tabs>
                     </div>
 
                     <div class="workspace-secondary">
@@ -3386,9 +3809,11 @@ onBeforeUnmount(() => {
                           <div class="ep-card-head spread">
                             <span>报关填报工作区</span>
                             <div class="ep-inline-actions">
-                              <el-tag :type="submissionDraftSummary.missingCount > 0 ? 'warning' : 'success'">
+                              <el-tag :type="submissionDraftSummary.hasReviewWarnings ? 'warning' : 'success'">
                                 缺失 {{ submissionDraftSummary.missingCount }}
                               </el-tag>
+                              <el-tag v-if="submissionDraftSummary.reviewCount > 0" type="warning">复核 {{ submissionDraftSummary.reviewCount }}</el-tag>
+                              <el-tag v-if="submissionPacketMeta.packet_id" type="info">资料包 {{ submissionPacketMeta.packet_id }}</el-tag>
                               <el-tag type="info">明细 {{ submissionDraftSummary.detailCount }}</el-tag>
                               <el-tag v-if="activeSubmissionResult?.declaration_no" type="success">单号 {{ activeSubmissionResult.declaration_no }}</el-tag>
                             </div>
@@ -3419,14 +3844,26 @@ onBeforeUnmount(() => {
                         <el-alert
                           class="top-gap"
                           :title="submissionDraftSummary.submitMessage || '先确认字段，再手动触发服务端自动填报。'"
-                          :type="submissionDraftSummary.missingCount > 0 ? 'warning' : 'info'"
+                          :type="submissionDraftSummary.hasReviewWarnings ? 'warning' : 'info'"
                           :closable="false"
                           show-icon
                         />
 
+                        <div v-if="submissionPacketReviewItems.length > 0" class="submission-review-list top-gap">
+                          <div
+                            v-for="item in submissionPacketReviewItems"
+                            :key="item.key"
+                            class="submission-review-item"
+                          >
+                            <el-tag size="small" type="warning">{{ item.type }}</el-tag>
+                            <strong>{{ item.title }}</strong>
+                            <span>{{ item.description }}</span>
+                          </div>
+                        </div>
+
                         <el-row :gutter="12" class="top-gap">
                           <el-col
-                            v-for="field in customsHeaderFields"
+                            v-for="field in visibleCustomsHeaderFields"
                             :key="field"
                             :xs="24"
                             :sm="12"
@@ -3440,6 +3877,11 @@ onBeforeUnmount(() => {
                             </el-form-item>
                           </el-col>
                         </el-row>
+                        <div v-if="customsHeaderFields.length > 6" class="submission-more-toggle">
+                          <el-button text type="primary" @click="submissionExtraFieldsVisible = !submissionExtraFieldsVisible">
+                            {{ submissionExtraFieldsVisible ? '收起更多字段' : `展开更多字段（${hiddenCustomsHeaderFieldCount}）` }}
+                          </el-button>
+                        </div>
 
                         <div class="ep-card-head top-gap">
                           <span>明细行</span>
@@ -3497,6 +3939,49 @@ onBeforeUnmount(() => {
           >
             <div ref="previewPaneModalRef" class="preview-markdown preview-markdown-modal" v-html="previewHtml" />
           </el-dialog>
+
+          <el-dialog
+            v-model="fieldDetailVisible"
+            :title="`字段详情：${selectedFieldDetail.title}`"
+            class="layer-dialog field-detail-dialog"
+            width="min(860px, 94vw)"
+            top="6vh"
+            append-to-body
+          >
+            <div class="field-detail-shell">
+              <div class="field-detail-main">
+                <div class="field-detail-head">
+                  <div>
+                    <p class="section-kicker">Field Evidence</p>
+                    <h4>{{ selectedFieldDetail.title }}</h4>
+                  </div>
+                  <el-tag :type="selectedFieldDetail.statusType">{{ selectedFieldDetail.statusLabel }}</el-tag>
+                </div>
+                <div class="field-detail-block">
+                  <span>展示值</span>
+                  <p>{{ selectedFieldDetail.valueText }}</p>
+                </div>
+                <div class="field-detail-block">
+                  <span>{{ selectedFieldDetail.isStructured ? '结构化原值' : '原始值' }}</span>
+                  <pre>{{ selectedFieldDetail.rawText || '-' }}</pre>
+                </div>
+              </div>
+              <aside class="field-detail-aside">
+                <strong>证据定位</strong>
+                <p>点击定位会跳到证据面板，并高亮原文中匹配的字段值。</p>
+                <div v-if="selectedFieldLocateTexts.length > 0" class="field-detail-chips">
+                  <span v-for="text in selectedFieldLocateTexts.slice(0, 6)" :key="text">{{ text }}</span>
+                </div>
+                <el-empty v-else description="暂无可定位文本" />
+              </aside>
+            </div>
+            <template #footer>
+              <div class="ep-inline-actions">
+                <el-button @click="fieldDetailVisible = false">关闭</el-button>
+                <el-button type="primary" :disabled="!selectedFieldDetailRow" @click="locateSelectedFieldDetail">在证据中定位</el-button>
+              </div>
+            </template>
+          </el-dialog>
         </section>
 
         <section v-show="currentNav === 'settings'" class="ep-section">
@@ -3546,11 +4031,15 @@ onBeforeUnmount(() => {
                   <el-col :xs="24" :lg="10">
                     <div class="ep-inline-actions top-gap">
                       <el-button :disabled="llmSettingsLoading" @click="openCreateLlmConfig">新增配置</el-button>
-                      <el-button :disabled="llmSettingsLoading || !activeLlmConfig" @click="openEditLlmConfig(activeLlmConfig)">编辑配置</el-button>
-                      <el-button type="danger" :disabled="llmSettingsLoading || !activeLlmConfig" @click="deleteLlmConfig(activeLlmConfigId)">删除配置</el-button>
                     </div>
                   </el-col>
                 </el-row>
+
+                <div class="fixed-config-list top-gap">
+                  <el-tag type="success">提供商: {{ activeLlmConfigSummary.provider }}</el-tag>
+                  <el-tag type="info">模型: {{ activeLlmConfigSummary.model }}</el-tag>
+                  <el-tag type="info">Base URL: {{ activeLlmConfigSummary.baseUrl }}</el-tag>
+                </div>
 
                 <el-form label-position="top" class="ep-form-tight">
                   <el-row :gutter="12">
@@ -3567,6 +4056,11 @@ onBeforeUnmount(() => {
                       </el-form-item>
                     </el-col>
                   </el-row>
+                  <div class="ep-inline-actions top-gap-xs">
+                    <el-button plain :disabled="llmSettingsLoading" @click="applyLlmProviderPreset('deepseek')">DeepSeek 预设</el-button>
+                    <el-button plain :disabled="llmSettingsLoading" @click="applyLlmProviderPreset('gemini')">Gemini 预设</el-button>
+                    <el-button plain :disabled="llmSettingsLoading" @click="applyLlmProviderPreset('bailian')">百炼预设</el-button>
+                  </div>
                   <el-row :gutter="12">
                     <el-col :xs="24" :lg="12">
                       <el-form-item label="LLM Model">
@@ -3589,6 +4083,8 @@ onBeforeUnmount(() => {
                   </el-row>
                 </el-form>
                 <div class="ep-inline-actions">
+                  <el-button :disabled="llmSettingsLoading || !activeLlmConfig" @click="openEditLlmConfig(activeLlmConfig)">编辑当前配置</el-button>
+                  <el-button type="danger" :disabled="llmSettingsLoading || !activeLlmConfig" @click="deleteLlmConfig(activeLlmConfigId)">删除当前配置</el-button>
                   <el-button :disabled="llmSettingsLoading" @click="resetLlmSettings">恢复默认</el-button>
                   <el-button type="primary" :loading="llmSettingsLoading" @click="saveLlmSettings">保存设置</el-button>
                 </div>
@@ -3599,10 +4095,14 @@ onBeforeUnmount(() => {
                     <template #default="{ row }">{{ llmProviderLabel(row.provider) }}</template>
                   </el-table-column>
                   <el-table-column prop="llm_model" label="模型" min-width="130" />
-                  <el-table-column label="启用" width="90">
+                  <el-table-column label="操作" width="210">
                     <template #default="{ row }">
-                      <el-tag v-if="row.id === activeLlmConfigId" type="success">已启用</el-tag>
-                      <el-button v-else text type="primary" :disabled="llmSettingsLoading" @click="activateLlmConfig(row.id)">启用</el-button>
+                      <div class="table-actions action-links">
+                        <el-tag v-if="row.id === activeLlmConfigId" type="success">已启用</el-tag>
+                        <el-button v-else text type="primary" :disabled="llmSettingsLoading" @click="activateLlmConfig(row.id)">启用</el-button>
+                        <el-button text :disabled="llmSettingsLoading" @click="openEditLlmConfig(row)">编辑</el-button>
+                        <el-button text type="danger" :disabled="llmSettingsLoading || llmConfigs.length <= 1" @click="deleteLlmConfig(row.id)">删除</el-button>
+                      </div>
                     </template>
                   </el-table-column>
                 </el-table>
@@ -3661,7 +4161,7 @@ onBeforeUnmount(() => {
                   <div class="ep-card-head">配置说明</div>
                 </template>
                 <el-alert
-                  title="DeepSeek 与 Gemini 可通过上方提供商预设快速切换，也可改为自定义兼容 OpenAI 的地址。"
+                  title="DeepSeek、Gemini 与百炼可通过上方提供商预设快速切换，也可改为自定义兼容 OpenAI 的地址。"
                   type="info"
                   :closable="false"
                   show-icon

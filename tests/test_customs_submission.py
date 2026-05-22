@@ -2,6 +2,7 @@ import asyncio
 import json
 import sys
 import types
+from pathlib import Path
 
 from app.llm_settings_store import normalize_llm_settings
 from app.template_store import normalize_templates
@@ -177,6 +178,24 @@ def test_build_submission_draft_prefers_llm_submission_output():
     assert draft["meta"]["mapping_source"] == "llm"
 
 
+def test_build_submission_draft_strips_spaces_from_mawb_and_hawb():
+    from app.customs_submission import build_submission_draft
+
+    draft = build_submission_draft(
+        response_payload={"detected": {}},
+        template={},
+        llm_output={
+            "header": {
+                "Mawb": " MBL 00 1 ",
+                "Hawb": " HBL  00 2 ",
+            }
+        },
+    )
+
+    assert draft["header"]["Mawb"] == "MBL001"
+    assert draft["header"]["Hawb"] == "HBL002"
+
+
 def test_build_submission_draft_fills_missing_fields_with_default_text():
     from app.customs_submission import build_submission_draft
 
@@ -301,6 +320,33 @@ def test_build_customs_submission_prompt_maps_total_sheets_from_package_count():
     assert "必须优先从 `Die Qty`、`WaferQty`、`Wafer Qty` 或 `Summary WaferQty` 提取" in prompt
 
 
+def test_build_customs_submission_prompt_maps_quantity_from_no_of_process_rcp():
+    from app.main import _build_customs_submission_prompt
+
+    prompt = _build_customs_submission_prompt(
+        template={},
+        response_payload={"vendor": "STM", "doc_type": "物流通知书"},
+    )
+
+    assert "Quantity 对应件数" in prompt
+    assert "必须优先从 `No. of Process RCP` 提取" in prompt
+
+
+def test_build_customs_submission_prompt_requests_packet_structures():
+    from app.main import _build_customs_submission_prompt
+
+    prompt = _build_customs_submission_prompt(
+        template={},
+        response_payload={"vendor": "Samsung", "doc_type": "报关单"},
+    )
+
+    assert "invoice_lines" in prompt
+    assert "packing_lines" in prompt
+    assert "header_candidates" in prompt
+    assert "商品明细按发票原始商品行生成" in prompt
+    assert "箱单按 ITEM + P/O No + SAMSUNG P/N 汇总校验" in prompt
+
+
 def test_build_submission_draft_maps_trade_type_from_freight_terms():
     from app.customs_submission import build_submission_draft
 
@@ -314,6 +360,21 @@ def test_build_submission_draft_maps_trade_type_from_freight_terms():
     )
 
     assert draft["header"]["TradeType"] == "FOB"
+
+
+def test_build_submission_draft_maps_quantity_from_no_of_process_rcp():
+    from app.customs_submission import build_submission_draft
+
+    draft = build_submission_draft(
+        response_payload={
+            "detected": {
+                "No. of Process RCP": "24",
+            }
+        },
+        template={},
+    )
+
+    assert draft["header"]["Quantity"] == "24"
 
 
 def test_build_submission_draft_maps_total_sheets_from_package_count():
@@ -561,6 +622,31 @@ def test_normalize_templates_keeps_customs_mapping():
     assert items[0]["customs_mapping"]["header"]["主提单号"] == "Mawb"
 
 
+def test_normalize_templates_accepts_customs_declaration_doc_type():
+    items = normalize_templates(
+        {
+            "items": [
+                {
+                    "vendor": "嘉盛半导体",
+                    "doc_type": "报关单",
+                    "llm_prompt": "{}",
+                }
+            ]
+        }
+    )
+
+    assert items[0]["doc_type"] == "报关单"
+
+
+def test_normalize_templates_default_set_includes_remote_logistics_templates():
+    items = normalize_templates(None)
+    pairs = {(item["vendor"], item["doc_type"]) for item in items}
+
+    assert ("UPI  Semi", "物流通知书") in pairs
+    assert ("STMicroelectronics", "物流通知书") in pairs
+    assert ("TI", "物流通知书") in pairs
+
+
 def test_normalize_llm_settings_keeps_auto_mode_enabled():
     settings = normalize_llm_settings(
         {
@@ -633,6 +719,28 @@ def test_normalize_llm_settings_rejects_local_agent_mode_and_drops_agent_id():
     invalid = normalize_llm_settings({"customs_submit_mode": "local_agent", "local_agent_id": 123})
     assert invalid["customs_submit_mode"] == "http"
     assert "local_agent_id" not in invalid
+
+
+def test_normalize_llm_settings_accepts_bailian_provider():
+    settings = normalize_llm_settings(
+        {
+            "active_id": "cfg-1",
+            "items": [
+                {
+                    "id": "cfg-1",
+                    "name": "百炼 Qwen",
+                    "provider": "bailian",
+                    "llm_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    "llm_model": "qwen3.5-plus",
+                    "llm_api_key": "secret",
+                }
+            ],
+        }
+    )
+
+    assert settings["items"][0]["provider"] == "bailian"
+    assert settings["items"][0]["llm_base_url"] == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    assert settings["items"][0]["llm_model"] == "qwen3.5-plus"
 
 
 def test_attach_submission_draft_writes_submission_into_response_payload():
@@ -877,6 +985,25 @@ def test_flatten_submission_payload_maps_mawb_and_hawb_to_site_fields():
             "header": {
                 "Mawb": "MBL-001",
                 "Hawb": "HBL-002",
+                "CustomerName": "嘉盛",
+            },
+            "details": [],
+        },
+        "DEC-1",
+    )
+
+    assert ("MainBLNo", "MBL-001") in payload
+    assert ("SubBLNo", "HBL-002") in payload
+
+
+def test_flatten_submission_payload_strips_spaces_from_mawb_and_hawb():
+    from app.customs_browser import _flatten_submission_payload
+
+    payload = _flatten_submission_payload(
+        {
+            "header": {
+                "Mawb": " MB L-0 01 ",
+                "Hawb": " HB L-0 02 ",
                 "CustomerName": "嘉盛",
             },
             "details": [],
@@ -1539,6 +1666,274 @@ def test_run_extract_task_manual_mode_stops_after_extract(tmp_path, monkeypatch)
     assert called["submitted"] is False
 
 
+def test_build_extract_payload_defaults_to_mineru_engine(monkeypatch):
+    import app.main as main_mod
+
+    calls = {"mineru": 0, "opendataloader": 0}
+
+    monkeypatch.setattr(main_mod, "_resolve_runtime_llm_settings", lambda **kwargs: ("https://example.com/v1", "demo-model", "secret"))
+    monkeypatch.setattr(main_mod, "_build_history_preview_assets", lambda **kwargs: [])
+    monkeypatch.setattr(main_mod, "save_history_record", lambda **kwargs: {"id": "history-mineru"})
+    monkeypatch.setattr(main_mod, "_build_rotation_candidates", lambda **kwargs: [(0, kwargs["file_bytes"])])
+    monkeypatch.setattr(main_mod, "_should_try_rotation_retry", lambda *args, **kwargs: False)
+    monkeypatch.setattr(main_mod, "_count_detected_hits", lambda detected: len(detected or {}))
+    monkeypatch.setattr(main_mod, "_estimate_text_quality", lambda preview: len(str(preview or "")))
+    monkeypatch.setattr(
+        main_mod,
+        "run_llm_extract",
+        lambda **kwargs: {
+            "detected": {"发票号": "INV-001"},
+            "endpoint": kwargs["base_url"],
+            "model": kwargs["model"],
+            "content": '{"发票号":"INV-001"}',
+        },
+    )
+    monkeypatch.setattr(main_mod, "extract_fields_by_regions", lambda *args, **kwargs: {})
+
+    def fake_mineru(**kwargs):
+        calls["mineru"] += 1
+        return {
+            "text": "Invoice No: INV-001",
+            "markdown": "# Invoice\n\nInvoice No: INV-001",
+            "json": {"content": "Invoice No: INV-001"},
+            "middle_json": {"pages": []},
+            "zip_entries": [],
+            "zip_size": 0,
+        }
+
+    monkeypatch.setattr(main_mod, "run_mineru_and_read_text", fake_mineru)
+
+    def should_not_run(**kwargs):
+        calls["opendataloader"] += 1
+        raise AssertionError("opendataloader extractor should not be used by default")
+
+    monkeypatch.setattr(main_mod, "run_opendataloader_and_read_text", should_not_run)
+
+    payload = main_mod._build_extract_payload(
+        file_name="invoice.png",
+        file_bytes=b"demo",
+        vendor="Vendor A",
+        doc_type="发票",
+        fields="发票号",
+        region_rules="",
+        llm_prompt="提取发票号",
+        llm_base_url="",
+        llm_model="",
+        llm_api_key="",
+        mineru_model_version="vlm",
+        backend="vlm",
+        parse_method="auto",
+        lang_list="en",
+    )
+
+    assert calls["mineru"] == 1
+    assert calls["opendataloader"] == 0
+    assert payload["ocr_engine"] == "mineru"
+    assert payload["ocr_engine_label"] == "MinerU"
+    assert payload["detected"] == {"发票号": "INV-001"}
+
+
+def test_build_extract_payload_routes_to_opendataloader_engine(monkeypatch):
+    import app.main as main_mod
+
+    calls = {"mineru": 0, "opendataloader": 0}
+
+    monkeypatch.setattr(main_mod, "_resolve_runtime_llm_settings", lambda **kwargs: ("https://example.com/v1", "demo-model", "secret"))
+    monkeypatch.setattr(main_mod, "_build_history_preview_assets", lambda **kwargs: [])
+    monkeypatch.setattr(main_mod, "save_history_record", lambda **kwargs: {"id": "history-opendataloader"})
+    monkeypatch.setattr(main_mod, "_build_rotation_candidates", lambda **kwargs: [(0, kwargs["file_bytes"])])
+    monkeypatch.setattr(main_mod, "_should_try_rotation_retry", lambda *args, **kwargs: False)
+    monkeypatch.setattr(main_mod, "_count_detected_hits", lambda detected: len(detected or {}))
+    monkeypatch.setattr(main_mod, "_estimate_text_quality", lambda preview: len(str(preview or "")))
+    monkeypatch.setattr(
+        main_mod,
+        "run_llm_extract",
+        lambda **kwargs: {
+            "detected": {"发票号": "INV-ODL-001"},
+            "endpoint": kwargs["base_url"],
+            "model": kwargs["model"],
+            "content": '{"发票号":"INV-ODL-001"}',
+        },
+    )
+    monkeypatch.setattr(main_mod, "extract_fields_by_regions", lambda *args, **kwargs: {})
+
+    def should_not_run(**kwargs):
+        calls["mineru"] += 1
+        raise AssertionError("mineru extractor should not be used when ocr_engine=opendataloader")
+
+    monkeypatch.setattr(main_mod, "run_mineru_and_read_text", should_not_run)
+
+    def fake_opendataloader(**kwargs):
+        calls["opendataloader"] += 1
+        return {
+            "text": "Invoice No: INV-ODL-001",
+            "markdown": "# Parsed\n\nInvoice No: INV-ODL-001",
+            "json": {"blocks": [{"text": "Invoice No: INV-ODL-001"}]},
+            "middle_json": {"pages": [{"blocks": [{"text": "Invoice No: INV-ODL-001"}]}]},
+            "zip_entries": ["document.md", "document.json"],
+            "zip_size": 321,
+        }
+
+    monkeypatch.setattr(main_mod, "run_opendataloader_and_read_text", fake_opendataloader)
+
+    payload = main_mod._build_extract_payload(
+        file_name="invoice.png",
+        file_bytes=b"demo",
+        vendor="Vendor A",
+        doc_type="发票",
+        fields="发票号",
+        region_rules="",
+        llm_prompt="提取发票号",
+        llm_base_url="",
+        llm_model="",
+        llm_api_key="",
+        mineru_model_version="vlm",
+        backend="vlm",
+        parse_method="auto",
+        lang_list="en",
+        ocr_engine="opendataloader",
+    )
+
+    assert calls["mineru"] == 0
+    assert calls["opendataloader"] == 1
+    assert payload["ocr_engine"] == "opendataloader"
+    assert payload["ocr_engine_label"] == "OpenDataLoader PDF"
+    assert payload["detected"] == {"发票号": "INV-ODL-001"}
+
+
+def test_build_extract_payload_uses_markdown_fallback_when_opendataloader_text_is_empty(monkeypatch):
+    import app.main as main_mod
+
+    seen = {}
+
+    monkeypatch.setattr(main_mod, "_resolve_runtime_llm_settings", lambda **kwargs: ("https://example.com/v1", "demo-model", "secret"))
+    monkeypatch.setattr(main_mod, "_build_history_preview_assets", lambda **kwargs: [])
+    monkeypatch.setattr(main_mod, "save_history_record", lambda **kwargs: {"id": "history-opendataloader-fallback"})
+    monkeypatch.setattr(main_mod, "_build_rotation_candidates", lambda **kwargs: [(0, kwargs["file_bytes"])])
+    monkeypatch.setattr(main_mod, "_should_try_rotation_retry", lambda *args, **kwargs: False)
+    monkeypatch.setattr(main_mod, "_count_detected_hits", lambda detected: len(detected or {}))
+    monkeypatch.setattr(main_mod, "_estimate_text_quality", lambda preview: len(str(preview or "")))
+    monkeypatch.setattr(main_mod, "extract_fields_by_regions", lambda *args, **kwargs: {})
+
+    def fake_llm_extract(**kwargs):
+        seen["text"] = kwargs["text"]
+        return {
+            "detected": {"发票号": "INV-ODL-MD-001"},
+            "endpoint": kwargs["base_url"],
+            "model": kwargs["model"],
+            "content": '{"发票号":"INV-ODL-MD-001"}',
+        }
+
+    monkeypatch.setattr(main_mod, "run_llm_extract", fake_llm_extract)
+    monkeypatch.setattr(main_mod, "run_mineru_and_read_text", lambda **kwargs: (_ for _ in ()).throw(AssertionError("mineru should not run")))
+    monkeypatch.setattr(
+        main_mod,
+        "run_opendataloader_and_read_text",
+        lambda **kwargs: {
+            "text": "",
+            "markdown": "# Parsed\n\nInvoice No: INV-ODL-MD-001",
+            "json": {"blocks": [{"text": "Invoice No: INV-ODL-MD-001"}]},
+            "middle_json": {"pages": []},
+            "zip_entries": ["document.md"],
+            "zip_size": 123,
+        },
+    )
+
+    payload = main_mod._build_extract_payload(
+        file_name="invoice.pdf",
+        file_bytes=b"demo",
+        vendor="Vendor A",
+        doc_type="发票",
+        fields="发票号",
+        region_rules="",
+        llm_prompt="提取发票号",
+        llm_base_url="",
+        llm_model="",
+        llm_api_key="",
+        mineru_model_version="vlm",
+        backend="vlm",
+        parse_method="auto",
+        lang_list="en",
+        ocr_engine="opendataloader",
+    )
+
+    assert seen["text"].startswith("# Parsed")
+    assert payload["preview"].startswith("# Parsed")
+    assert payload["detected"] == {"发票号": "INV-ODL-MD-001"}
+
+
+def test_build_extract_payload_persists_opendataloader_output_files_as_history_assets(monkeypatch):
+    import app.main as main_mod
+
+    captured = {}
+
+    monkeypatch.setattr(main_mod, "_resolve_runtime_llm_settings", lambda **kwargs: ("https://example.com/v1", "demo-model", "secret"))
+    monkeypatch.setattr(main_mod, "_build_history_preview_assets", lambda **kwargs: [])
+    monkeypatch.setattr(main_mod, "_build_rotation_candidates", lambda **kwargs: [(0, kwargs["file_bytes"])])
+    monkeypatch.setattr(main_mod, "_should_try_rotation_retry", lambda *args, **kwargs: False)
+    monkeypatch.setattr(main_mod, "_count_detected_hits", lambda detected: len(detected or {}))
+    monkeypatch.setattr(main_mod, "_estimate_text_quality", lambda preview: len(str(preview or "")))
+    monkeypatch.setattr(main_mod, "extract_fields_by_regions", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        main_mod,
+        "run_llm_extract",
+        lambda **kwargs: {
+            "detected": {"发票号": "INV-ODL-002"},
+            "endpoint": kwargs["base_url"],
+            "model": kwargs["model"],
+            "content": '{"发票号":"INV-ODL-002"}',
+        },
+    )
+    monkeypatch.setattr(main_mod, "run_mineru_and_read_text", lambda **kwargs: (_ for _ in ()).throw(AssertionError("mineru should not run")))
+    monkeypatch.setattr(
+        main_mod,
+        "run_opendataloader_and_read_text",
+        lambda **kwargs: {
+            "text": "Invoice No: INV-ODL-002",
+            "markdown": "# Parsed\n\nInvoice No: INV-ODL-002",
+            "json": {"blocks": [{"text": "Invoice No: INV-ODL-002"}]},
+            "middle_json": {"pages": []},
+            "zip_entries": ["document.md", "document.json", "images/p1.png"],
+            "zip_size": 456,
+            "history_assets": [
+                {"path": "opendataloader/document.md", "content": b"# Parsed\n\nInvoice No: INV-ODL-002\n"},
+                {"path": "opendataloader/document.json", "content": b'{"blocks":[{"text":"Invoice No: INV-ODL-002"}]}'},
+                {"path": "opendataloader/images/p1.png", "content": b"\x89PNG\r\n"},
+            ],
+        },
+    )
+
+    def fake_save_history_record(**kwargs):
+        captured["extra_assets"] = kwargs.get("extra_assets") or []
+        return {"id": "history-opendataloader-assets"}
+
+    monkeypatch.setattr(main_mod, "save_history_record", fake_save_history_record)
+
+    payload = main_mod._build_extract_payload(
+        file_name="invoice.pdf",
+        file_bytes=b"demo",
+        vendor="Vendor A",
+        doc_type="发票",
+        fields="发票号",
+        region_rules="",
+        llm_prompt="提取发票号",
+        llm_base_url="",
+        llm_model="",
+        llm_api_key="",
+        mineru_model_version="vlm",
+        backend="vlm",
+        parse_method="auto",
+        lang_list="en",
+        ocr_engine="opendataloader",
+    )
+
+    saved_paths = {item["path"] for item in captured["extra_assets"]}
+    assert "opendataloader/document.md" in saved_paths
+    assert "opendataloader/document.json" in saved_paths
+    assert "opendataloader/images/p1.png" in saved_paths
+    assert payload["history"]["id"] == "history-opendataloader-assets"
+
+
 def test_save_history_record_includes_selected_preview_asset(tmp_path):
     from app.history_store import save_history_record
 
@@ -1568,3 +1963,111 @@ def test_save_history_record_includes_selected_preview_asset(tmp_path):
     assert any(item["path"] == "preview/final_selected.pdf" for item in files)
     saved_path = tmp_path / "output" / "history" / summary["id"] / "unzipped" / "preview" / "final_selected.pdf"
     assert saved_path.is_file()
+
+
+def test_normalize_ocr_engine_accepts_qwen_vision():
+    import app.main as main_mod
+
+    assert main_mod._normalize_ocr_engine("qwen_vision") == "qwen_vision"
+
+
+def test_ocr_engine_label_for_qwen_vision():
+    import app.main as main_mod
+
+    assert main_mod._ocr_engine_label("qwen_vision") == "Qwen3.5-Plus 端到端"
+
+
+def test_build_extract_payload_routes_qwen_vision_without_text_llm(tmp_path, monkeypatch):
+    import app.main as main_mod
+
+    monkeypatch.setattr(main_mod, "project_root", tmp_path)
+    monkeypatch.setattr(main_mod, "_auto_rotate_pdf_with_osd", lambda file_bytes: (file_bytes, False, "skip", []))
+    monkeypatch.setattr(main_mod, "_build_rotation_candidates", lambda **kwargs: [(0, kwargs["file_bytes"])])
+
+    called = {"qwen": 0, "llm": 0, "mineru": 0, "odl": 0}
+
+    def fake_qwen_extract(**kwargs):
+        called["qwen"] += 1
+        return {
+            "detected": {"发票号": "INV-001"},
+            "content": '{"发票号":"INV-001"}',
+            "model": "qwen3.5-plus",
+            "endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+            "preview": "# OCR\n\n发票号: INV-001",
+            "markdown": "# OCR\n\n发票号: INV-001",
+            "history_assets": [
+                {"path": "qwen_vision/raw-response.json", "content": b'{"ok":true}'},
+                {"path": "qwen_vision/preview.md", "content": "# OCR\n\n发票号: INV-001".encode("utf-8")},
+            ],
+        }
+
+    monkeypatch.setattr(main_mod, "run_qwen_vision_extract", fake_qwen_extract)
+    monkeypatch.setattr(
+        main_mod,
+        "run_llm_extract",
+        lambda **kwargs: called.__setitem__("llm", called["llm"] + 1) or {},
+    )
+    monkeypatch.setattr(
+        main_mod,
+        "run_mineru_and_read_text",
+        lambda **kwargs: called.__setitem__("mineru", called["mineru"] + 1) or {},
+    )
+    monkeypatch.setattr(
+        main_mod,
+        "run_opendataloader_and_read_text",
+        lambda **kwargs: called.__setitem__("odl", called["odl"] + 1) or {},
+    )
+
+    payload = main_mod._build_extract_payload(
+        file_name="invoice.pdf",
+        file_bytes=b"%PDF-1.4 fake",
+        vendor="ASE",
+        doc_type="invoice",
+        fields="",
+        region_rules="",
+        llm_prompt="提取发票号",
+        llm_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        llm_model="qwen3.5-plus",
+        llm_api_key="secret",
+        mineru_model_version="vlm",
+        backend="vlm",
+        parse_method="auto",
+        lang_list="en",
+        ocr_engine="qwen_vision",
+    )
+
+    assert called == {"qwen": 1, "llm": 0, "mineru": 0, "odl": 0}
+    assert payload["ocr_engine"] == "qwen_vision"
+    assert payload["ocr_engine_label"] == "Qwen3.5-Plus 端到端"
+    assert payload["llm_model"] == "qwen3.5-plus"
+    assert payload["detected"] == {"发票号": "INV-001"}
+    assert payload["preview"].startswith("# OCR")
+    history_path = Path(tmp_path) / "output" / "history" / payload["history"]["id"] / "unzipped" / "qwen_vision" / "preview.md"
+    assert history_path.is_file()
+
+
+def test_build_extract_payload_rejects_office_files_for_qwen_vision():
+    import app.main as main_mod
+
+    try:
+        main_mod._build_extract_payload(
+            file_name="invoice.docx",
+            file_bytes=b"fake",
+            vendor="ASE",
+            doc_type="invoice",
+            fields="",
+            region_rules="",
+            llm_prompt="提取发票号",
+            llm_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            llm_model="qwen3.5-plus",
+            llm_api_key="secret",
+            mineru_model_version="vlm",
+            backend="vlm",
+            parse_method="auto",
+            lang_list="en",
+            ocr_engine="qwen_vision",
+        )
+    except ValueError as exc:
+        assert "Qwen3.5-Plus" in str(exc)
+    else:
+        raise AssertionError("expected qwen_vision office file validation to fail")

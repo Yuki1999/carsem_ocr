@@ -1,7 +1,7 @@
 import { createApp } from 'vue'
 import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css'
-import './style.css'
+import './styles/style.css'
 
 const BOOT_RECOVER_FLAG = 'carsem_ocr_boot_recovered_v1'
 

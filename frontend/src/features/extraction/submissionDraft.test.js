@@ -19,6 +19,28 @@ describe('buildDraftSummary', () => {
 
     expect(summary.missingCount).toBe(2)
   })
+
+  it('counts packet review items', () => {
+    const summary = buildDraftSummary({
+      meta: {
+        packet: {
+          field_reviews: [{ field: 'CustomerName', review_required: true }],
+          detail_reviews: [
+            { detail_index: 0, quantity_check: 'matched', review_required: false },
+            { detail_index: 1, quantity_check: 'mismatch', review_required: true },
+          ],
+        },
+      },
+    })
+
+    expect(summary.reviewCount).toBe(2)
+  })
+
+  it('exposes warning state for missing or review items', () => {
+    expect(buildDraftSummary({ meta: { required_missing: ['CustomerName'] } }).hasReviewWarnings).toBe(true)
+    expect(buildDraftSummary({ meta: { packet: { detail_reviews: [{ review_required: true }] } } }).hasReviewWarnings).toBe(true)
+    expect(buildDraftSummary({ meta: { required_missing: [], packet: { detail_reviews: [] } } }).hasReviewWarnings).toBe(false)
+  })
 })
 
 describe('draft edits', () => {
@@ -65,5 +87,27 @@ describe('draft edits', () => {
 
     expect(normalized.header.Mawb).toBe('MBL001')
     expect(normalized.header.Hawb).toBe('HBL001')
+  })
+
+  it('preserves packet metadata for manual review', () => {
+    const normalized = normalizeSubmissionDraft({
+      meta: {
+        packet: {
+          packet_id: 'DS12650253',
+          header_candidates: {
+            CustomerName: {
+              recommended: '推荐客户',
+              candidates: [{ source: 'invoice', value: '推荐客户' }],
+              review_required: true,
+            },
+          },
+          detail_reviews: [{ detail_index: 0, quantity_check: 'mismatch', review_required: true }],
+        },
+      },
+    })
+
+    expect(normalized.meta.packet.packet_id).toBe('DS12650253')
+    expect(normalized.meta.packet.header_candidates.CustomerName.recommended).toBe('推荐客户')
+    expect(normalized.meta.packet.detail_reviews[0].quantity_check).toBe('mismatch')
   })
 })

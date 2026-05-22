@@ -2,7 +2,7 @@ const DEFAULT_LLM_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/o
 const DEFAULT_LLM_MODEL = 'gemini-3-flash-preview'
 const DEFAULT_LLM_API_KEY = ''
 const DEFAULT_CUSTOMS_SUBMIT_MODE = 'http'
-const LLM_PROVIDER_OPTIONS = ['deepseek', 'gemini', 'custom']
+const LLM_PROVIDER_OPTIONS = ['deepseek', 'gemini', 'bailian', 'custom']
 
 function createId() {
   return `llm-${Math.random().toString(36).slice(2, 10)}`
@@ -13,6 +13,7 @@ function inferLlmProvider(baseUrl, model) {
   const mdl = String(model || '').toLowerCase()
   if (base.includes('deepseek.com') || mdl.includes('deepseek')) return 'deepseek'
   if (base.includes('generativelanguage.googleapis.com') || mdl.includes('gemini')) return 'gemini'
+  if (base.includes('dashscope.aliyuncs.com') || base.includes('dashscope-intl.aliyuncs.com') || mdl.includes('qwen')) return 'bailian'
   return 'custom'
 }
 
