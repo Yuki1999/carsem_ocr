@@ -49,6 +49,11 @@ import {
   buildExtractionLaunchReview,
   buildFieldDetailView,
 } from './features/ui/layeredInteractions'
+import {
+  buildFallbackPlatformInsights,
+  buildInsightCards,
+  normalizePlatformInsights,
+} from './features/platform/platformInsights'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
@@ -132,6 +137,9 @@ const historyItems = ref([])
 const historyLoading = ref(false)
 const taskItems = ref([])
 const taskLoading = ref(false)
+const platformInsightsSource = ref(null)
+const platformInsightsLoading = ref(false)
+const platformInsightsError = ref('')
 const activeTaskId = ref('')
 const activeTaskNotifiedDone = ref(false)
 const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1440)
@@ -186,10 +194,11 @@ const draftRule = ref(null)
 const ruleDrawStart = ref(null)
 let samplePdfDoc = null
 let taskPollTimer = null
-const currentNav = ref('extract')
+const currentNav = ref('overview')
 const extractWorkspaceTab = ref('upload')
 const resultWorkspaceTab = ref('goods')
 const NAV_ITEMS = [
+  { key: 'overview', label: '运营台', desc: '平台概览' },
   { key: 'template', label: '模板中心', desc: '字段与规则' },
   { key: 'extract', label: '处理工作台', desc: '上传与抽取' },
   { key: 'result', label: '审核中心', desc: '证据与草稿' },
@@ -866,39 +875,53 @@ const workspaceReviewLabel = computed(() => {
   }
   return `明细 ${submissionDraftSummary.value.detailCount}`
 })
-const platformInsights = computed(() => {
-  const activeQueue = taskItems.value.filter((task) => {
-    const status = String(task?.status || '').toLowerCase()
-    return ['queued', 'running', 'processing', 'pending'].includes(status)
-  }).length
-  const reviewLoad = Number(submissionDraftSummary.value.missingCount || 0) + Number(submissionDraftSummary.value.reviewCount || 0)
-  const detailCount = Number(submissionDraftSummary.value.detailCount || 0)
-  const historyCount = historyItems.value.length
+const platformInsights = computed(() => platformInsightsSource.value || buildFallbackPlatformInsights({
+  taskItems: taskItems.value,
+  historyItems: historyItems.value,
+  templateStats: templateStats.value,
+  submissionSummary: submissionDraftSummary.value,
+  autoModeEnabled: autoModeEnabled.value,
+  customsSubmitMode: customsSubmitMode.value,
+  activeModel: form.value.llm_model || activeLlmConfig.value?.llm_model || '',
+}))
+const platformInsightCards = computed(() => buildInsightCards(platformInsights.value))
+const cockpitFlow = computed(() => {
+  const data = platformInsights.value
+  const activeQueue = data.queue.queued + data.queue.running
+  const reviewLoad = data.review.missing_fields + data.review.review_items
   return [
     {
-      label: '业务队列',
-      value: activeQueue > 0 ? `${activeQueue} 个运行中` : `${historyCount} 条历史`,
-      hint: activeQueue > 0 ? '后台任务正在处理' : '暂无运行任务',
-      tone: activeQueue > 0 ? 'info' : 'neutral',
+      label: '接收资料',
+      value: `${data.history.total} 条`,
+      hint: data.history.recent[0]?.filename || '等待客户资料',
+      tone: data.history.total > 0 ? 'success' : 'neutral',
     },
     {
-      label: '模板覆盖',
-      value: `${templateStats.value.common} 通用 / ${templateStats.value.vendor} 专属`,
-      hint: activeTemplateName.value,
-      tone: 'neutral',
+      label: '解析抽取',
+      value: activeQueue > 0 ? `${activeQueue} 个运行中` : '空闲',
+      hint: data.queue.failed > 0 ? `${data.queue.failed} 个异常` : 'OCR + LLM 管道',
+      tone: data.queue.failed > 0 ? 'warning' : (activeQueue > 0 ? 'info' : 'neutral'),
     },
     {
-      label: '人审负载',
-      value: reviewLoad > 0 ? `${reviewLoad} 项需复核` : '低风险',
-      hint: detailCount > 0 ? `明细 ${detailCount} 行` : '等待识别结果',
+      label: '人审复核',
+      value: reviewLoad > 0 ? `${reviewLoad} 项` : '低风险',
+      hint: `${data.review.drafts_checked} 份草稿已检查`,
       tone: reviewLoad > 0 ? 'warning' : 'success',
     },
     {
-      label: '自动化状态',
-      value: autoModeEnabled.value ? '自动流水线' : '人工接管',
-      hint: autoModeEnabled.value ? '提取后继续提交目标系统' : '停在审核中心确认',
-      tone: autoModeEnabled.value ? 'success' : 'info',
+      label: '业务提交',
+      value: data.automation.enabled ? '自动' : '人工',
+      hint: data.automation.submit_mode,
+      tone: data.automation.enabled ? 'success' : 'info',
     },
+  ]
+})
+const cockpitTemplateCoverage = computed(() => {
+  const data = platformInsights.value
+  return [
+    { label: '通用模板', value: data.templates.common },
+    { label: '来源专属', value: data.templates.vendor },
+    { label: '文档类型', value: data.templates.doc_types.length },
   ]
 })
 const submissionPacketMeta = computed(() => {
@@ -1535,23 +1558,55 @@ function pushToast(message, type = 'info', ttl = 3500) {
   })
 }
 
+async function loadPlatformInsightsFromServer(silent = true) {
+  platformInsightsLoading.value = true
+  try {
+    const resp = await fetch('/api/platform-insights')
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}))
+      throw new Error(err.detail || `加载运营概览失败 ${resp.status}`)
+    }
+    const data = await resp.json()
+    platformInsightsSource.value = normalizePlatformInsights(data)
+    platformInsightsError.value = ''
+    if (!silent) pushToast('运营概览已刷新', 'success', 1800)
+    return true
+  } catch (err) {
+    platformInsightsSource.value = null
+    platformInsightsError.value = err.message || '运营概览暂时使用本地数据'
+    if (!silent) pushToast(platformInsightsError.value, 'warning', 2600)
+    return false
+  } finally {
+    platformInsightsLoading.value = false
+  }
+}
+
 async function refreshCurrentWorkspace() {
+  if (currentNav.value === 'overview') {
+    await Promise.all([
+      loadPlatformInsightsFromServer(false),
+      loadTaskList(true),
+      loadHistoryList(false),
+      loadTemplatesFromServer(false),
+    ])
+    return
+  }
   if (currentNav.value === 'result') {
-    await Promise.all([loadTaskList(true), loadHistoryList(false)])
+    await Promise.all([loadTaskList(true), loadHistoryList(false), loadPlatformInsightsFromServer(true)])
     pushToast('审核中心已刷新', 'success', 1800)
     return
   }
   if (currentNav.value === 'settings') {
-    await loadLlmSettingsFromServer()
+    await Promise.all([loadLlmSettingsFromServer(), loadPlatformInsightsFromServer(true)])
     pushToast('平台设置已刷新', 'success', 1800)
     return
   }
   if (currentNav.value === 'extract') {
-    await Promise.all([loadTaskList(true), loadTemplatesFromServer(false)])
+    await Promise.all([loadTaskList(true), loadTemplatesFromServer(false), loadPlatformInsightsFromServer(true)])
     pushToast('处理工作台已刷新', 'success', 1800)
     return
   }
-  await loadTemplatesFromServer(false)
+  await Promise.all([loadTemplatesFromServer(false), loadPlatformInsightsFromServer(true)])
   pushToast('模板中心已刷新', 'success', 1800)
 }
 
@@ -2415,6 +2470,7 @@ async function pollTask(taskId, silent = false) {
         }
         if (detail?.result?.auto_mode_enabled) pushToast(detail?.result?.auto_mode_message || '自动模式执行完成', 'success', 5000)
         else pushToast('提取完成，可在审核中心查看', 'success')
+        await loadPlatformInsightsFromServer(true)
         activeTaskNotifiedDone.value = true
       }
       stopTaskPolling()
@@ -2423,6 +2479,7 @@ async function pollTask(taskId, silent = false) {
     if (status === 'failed') {
       if (!activeTaskNotifiedDone.value) {
         pushToast(detail.error || detail.message || '提取失败', 'error', 5000)
+        await loadPlatformInsightsFromServer(true)
         activeTaskNotifiedDone.value = true
       }
       stopTaskPolling()
@@ -2581,6 +2638,7 @@ async function generateSubmissionDraft() {
     if (!resp.ok) throw new Error(data.detail || `生成填报草稿失败 ${resp.status}`)
     submissionDraft.value = normalizeSubmissionDraft(data.submission)
     syncSubmissionDraftIntoHistory(historyDetail.value, data.submission)
+    await loadPlatformInsightsFromServer(true)
     pushToast('已生成业务填报草稿', 'success')
   } catch (err) {
     pushToast(err.message || '生成填报草稿失败', 'error')
@@ -2605,6 +2663,7 @@ async function saveSubmissionDraft() {
     if (!resp.ok) throw new Error(data.detail || `保存填报草稿失败 ${resp.status}`)
     submissionDraft.value = normalizeSubmissionDraft(data.submission)
     syncSubmissionDraftIntoHistory(historyDetail.value, data.submission)
+    await loadPlatformInsightsFromServer(true)
     pushToast('填报草稿已保存', 'success')
     return true
   } catch (err) {
@@ -3024,6 +3083,7 @@ onMounted(async () => {
     loadTaskList(true),
     loadLlmSettingsFromServer(),
     loadTemplatesFromServer(false),
+    loadPlatformInsightsFromServer(true),
   ])
   autoModeReady.value = true
   const firstRunning = taskItems.value.find((x) => ['queued', 'running'].includes(String(x?.status || '').toLowerCase()))
@@ -3106,7 +3166,7 @@ onBeforeUnmount(() => {
 
         <div class="product-insight-strip" aria-label="IDP 运营概览">
           <div
-            v-for="item in platformInsights"
+            v-for="item in platformInsightCards"
             :key="item.label"
             class="product-insight-card"
             :class="`is-${item.tone}`"
@@ -3116,6 +3176,125 @@ onBeforeUnmount(() => {
             <small>{{ item.hint }}</small>
           </div>
         </div>
+
+        <section v-show="currentNav === 'overview'" class="ep-section cockpit-section">
+          <div class="section-hero cockpit-hero">
+            <div>
+              <p class="section-kicker">IDP Operations Cockpit</p>
+              <h3>运营台</h3>
+              <p>用一屏看清资料进入、解析抽取、人审复核、模板覆盖和自动化提交状态，支撑客户试点演示与日常运营。</p>
+            </div>
+            <div class="section-hero-actions">
+              <el-button type="primary" :loading="submitting" @click="currentNav = 'extract'">上传资料</el-button>
+              <el-button :loading="historyLoading || taskLoading" @click="currentNav = 'result'">处理待复核</el-button>
+            </div>
+          </div>
+
+          <div v-if="platformInsightsError" class="cockpit-warning">
+            {{ platformInsightsError }}，页面已回退到本地任务与历史数据。
+          </div>
+
+          <div class="cockpit-grid">
+            <el-card class="ep-card cockpit-flow-card" shadow="hover" v-loading="platformInsightsLoading">
+              <template #header>
+                <div class="ep-card-head spread">
+                  <span>端到端处理流</span>
+                  <el-tag :type="platformInsights.automation.enabled ? 'success' : 'info'">
+                    {{ platformInsights.automation.enabled ? '自动模式' : '人工审核' }}
+                  </el-tag>
+                </div>
+              </template>
+              <div class="cockpit-flow">
+                <div
+                  v-for="step in cockpitFlow"
+                  :key="step.label"
+                  class="cockpit-flow-step"
+                  :class="`is-${step.tone}`"
+                >
+                  <span>{{ step.label }}</span>
+                  <strong>{{ step.value }}</strong>
+                  <small>{{ step.hint }}</small>
+                </div>
+              </div>
+            </el-card>
+
+            <el-card class="ep-card cockpit-recommendations" shadow="hover">
+              <template #header>
+                <div class="ep-card-head spread">
+                  <span>产品化建议</span>
+                  <el-button text :loading="platformInsightsLoading" @click="loadPlatformInsightsFromServer(false)">刷新</el-button>
+                </div>
+              </template>
+              <div class="recommendation-list">
+                <div
+                  v-for="(item, idx) in platformInsights.recommendations"
+                  :key="`${idx}_${item}`"
+                  class="recommendation-item"
+                >
+                  <span>{{ idx + 1 }}</span>
+                  <p>{{ item }}</p>
+                </div>
+              </div>
+            </el-card>
+          </div>
+
+          <div class="cockpit-grid cockpit-grid-secondary">
+            <el-card class="ep-card cockpit-recent" shadow="hover">
+              <template #header>
+                <div class="ep-card-head spread">
+                  <span>最近资料包</span>
+                  <el-button text @click="currentNav = 'result'">进入审核中心</el-button>
+                </div>
+              </template>
+              <el-table
+                v-if="platformInsights.history.recent.length > 0"
+                :data="platformInsights.history.recent"
+                size="small"
+                border
+                stripe
+              >
+                <el-table-column prop="filename" label="文件" min-width="180" show-overflow-tooltip />
+                <el-table-column prop="doc_type" label="类型" width="95" />
+                <el-table-column label="复核" min-width="130">
+                  <template #default="{ row }">
+                    <el-tag size="small" :type="row.review_label.includes('缺失') || row.review_label.includes('复核') ? 'warning' : 'success'">
+                      {{ row.review_label }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="时间" width="160">
+                  <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+                </el-table-column>
+              </el-table>
+              <el-empty v-else description="暂无资料包记录" />
+            </el-card>
+
+            <el-card class="ep-card cockpit-template-card" shadow="hover">
+              <template #header>
+                <div class="ep-card-head spread">
+                  <span>模板治理</span>
+                  <el-button text @click="currentNav = 'template'">维护模板</el-button>
+                </div>
+              </template>
+              <div class="cockpit-template-stats">
+                <div v-for="item in cockpitTemplateCoverage" :key="item.label">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </div>
+              </div>
+              <div class="cockpit-doc-types">
+                <el-tag
+                  v-for="docType in platformInsights.templates.doc_types"
+                  :key="docType"
+                  type="info"
+                >
+                  {{ docType }}
+                </el-tag>
+                <span v-if="platformInsights.templates.doc_types.length === 0">等待模板配置</span>
+              </div>
+            </el-card>
+          </div>
+        </section>
 
         <section v-show="currentNav === 'template'" class="ep-section">
           <div class="section-hero">

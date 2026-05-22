@@ -62,6 +62,7 @@ pm2 logs carsem-ocr-frontend
 
 ## API
 - `GET /api/health`
+- `GET /api/platform-insights`
 - `POST /api/extract`
 - `GET /api/history`
 - `GET /api/history/{record_id}`

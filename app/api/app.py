@@ -105,6 +105,15 @@ async def llm_settings_get_api():
     return JSONResponse(settings)
 
 
+@app.get("/api/platform-insights")
+async def platform_insights_api():
+    try:
+        payload = await _build_platform_insights_payload()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"加载平台运营概览失败: {str(exc)[:180]}")
+    return JSONResponse(payload)
+
+
 @app.put("/api/llm-settings")
 async def llm_settings_put_api(payload: dict = Body(...)):
     try:
@@ -257,6 +266,160 @@ def _build_customs_submission_context(response_payload: dict[str, Any]) -> str:
         "preview": preview[:4000],
     }
     return json.dumps(source, ensure_ascii=False)
+
+
+def _count_submission_review(submission: Any) -> dict[str, int | str]:
+    if not isinstance(submission, dict):
+        return {"missing": 0, "review": 0, "label": "未生成草稿"}
+    meta = submission.get("meta")
+    if not isinstance(meta, dict):
+        meta = {}
+    missing_items = meta.get("required_missing")
+    missing = len(missing_items) if isinstance(missing_items, list) else 0
+    packet = meta.get("packet")
+    if not isinstance(packet, dict):
+        packet = {}
+    review = 0
+    for key in ("field_reviews", "detail_reviews"):
+        items = packet.get(key)
+        if isinstance(items, list):
+            review += sum(1 for item in items if isinstance(item, dict) and bool(item.get("review_required")))
+    status = str(meta.get("submit_status") or "idle").strip()
+    if missing or review:
+        label = f"缺失 {missing} / 复核 {review}"
+    elif status == "succeeded":
+        label = "已填报"
+    elif status == "failed":
+        label = "填报失败"
+    else:
+        label = "低风险"
+    return {"missing": missing, "review": review, "label": label}
+
+
+def _build_platform_recommendations(
+    *,
+    queue: dict[str, int],
+    templates: dict[str, Any],
+    review: dict[str, int],
+    automation: dict[str, Any],
+) -> list[str]:
+    recommendations: list[str] = []
+    if review["missing_fields"] or review["review_items"]:
+        recommendations.append(f"当前存在待复核资料：缺失 {review['missing_fields']} 项，复核 {review['review_items']} 项。")
+    if templates["vendor"] < templates["common"]:
+        recommendations.append("来源专属模板覆盖偏少，建议优先为高频客户沉淀专属模板。")
+    if queue["failed"] > 0:
+        recommendations.append(f"近期有 {queue['failed']} 个任务失败，建议先查看审核中心异常记录。")
+    if not automation["enabled"]:
+        recommendations.append("自动化流水线未开启，客户试点阶段建议先人工审核后再逐步开启。")
+    if not recommendations:
+        recommendations.append("平台状态稳定，可继续扩大样本并沉淀模板规则。")
+    return recommendations[:4]
+
+
+def _safe_load_history_detail(record_id: Any) -> dict[str, Any] | None:
+    try:
+        return load_history_record(project_root=project_root, record_id=str(record_id or ""))
+    except Exception:
+        return None
+
+
+async def _build_platform_insights_payload() -> dict[str, Any]:
+    async with _EXTRACT_TASKS_LOCK:
+        extract_tasks = list(_EXTRACT_TASKS.values())
+    async with _CUSTOMS_SUBMIT_TASKS_LOCK:
+        customs_tasks = list(_CUSTOMS_SUBMIT_TASKS.values())
+    queue = {"queued": 0, "running": 0, "failed": 0, "succeeded": 0}
+    for task in [*extract_tasks, *customs_tasks]:
+        status = str(task.get("status") if isinstance(task, dict) else "").strip().lower()
+        if status in queue:
+            queue[status] += 1
+
+    try:
+        history_items = list_history_records(project_root=project_root, limit=200)
+    except Exception:
+        history_items = []
+
+    try:
+        template_items = load_templates(project_root=project_root)
+    except Exception:
+        template_items = []
+    common_count = sum(1 for item in template_items if str(item.get("vendor") or "").strip() == "通用模板")
+    doc_types = sorted(
+        {str(item.get("doc_type") or "").strip() for item in template_items if str(item.get("doc_type") or "").strip()},
+        key=lambda x: ("到货单", "物流通知书", "送货单", "发票", "报关单").index(x)
+        if x in ("到货单", "物流通知书", "送货单", "发票", "报关单")
+        else 99,
+    )
+    template_stats = {
+        "total": len(template_items),
+        "common": common_count,
+        "vendor": max(0, len(template_items) - common_count),
+        "doc_types": doc_types,
+    }
+
+    try:
+        settings = load_llm_settings(project_root=project_root)
+    except Exception:
+        settings = {}
+    active_config = resolve_active_llm_config(settings)
+    automation = {
+        "enabled": bool(active_config.get("auto_mode_enabled")),
+        "submit_mode": str(active_config.get("customs_submit_mode") or "http"),
+        "active_model": str(active_config.get("llm_model") or ""),
+    }
+
+    review = {
+        "drafts_checked": 0,
+        "drafts_with_warnings": 0,
+        "missing_fields": 0,
+        "review_items": 0,
+    }
+    recent = []
+    for item in history_items[:30]:
+        detail = _safe_load_history_detail(item.get("id") if isinstance(item, dict) else "")
+        response_payload = detail.get("response") if isinstance(detail, dict) else {}
+        if not isinstance(response_payload, dict):
+            response_payload = {}
+        submission = response_payload.get("submission")
+        review_info = _count_submission_review(submission)
+        if isinstance(submission, dict):
+            review["drafts_checked"] += 1
+            review["missing_fields"] += int(review_info["missing"])
+            review["review_items"] += int(review_info["review"])
+            if int(review_info["missing"]) or int(review_info["review"]):
+                review["drafts_with_warnings"] += 1
+        if len(recent) < 8 and isinstance(item, dict):
+            recent.append({
+                "id": str(item.get("id") or ""),
+                "filename": str(item.get("filename") or ""),
+                "vendor": str(item.get("vendor") or ""),
+                "doc_type": str(item.get("doc_type") or ""),
+                "created_at": str(item.get("created_at") or ""),
+                "status": str(response_payload.get("submission", {}).get("meta", {}).get("submit_status") or "idle")
+                if isinstance(response_payload.get("submission"), dict)
+                else "idle",
+                "review_label": str(review_info["label"]),
+            })
+
+    payload = {
+        "generated_at": _utc_now_iso(),
+        "queue": queue,
+        "history": {
+            "total": len(history_items),
+            "recent": recent,
+        },
+        "templates": template_stats,
+        "review": review,
+        "automation": automation,
+    }
+    payload["recommendations"] = _build_platform_recommendations(
+        queue=queue,
+        templates=template_stats,
+        review=review,
+        automation=automation,
+    )
+    return payload
 
 
 def _generate_submission_draft_with_llm(response_payload: dict[str, Any], template: dict[str, Any]) -> dict[str, Any]:

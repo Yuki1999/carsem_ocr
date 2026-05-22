@@ -57,4 +57,16 @@ describe('layout density CSS', () => {
     expect(css).toContain('.product-insight-strip')
     expect(css).toContain('.product-insight-card')
   })
+
+  it('adds an operation cockpit as the default product entry point', () => {
+    expect(appVue).toContain("const currentNav = ref('overview')")
+    expect(appVue).toContain("key: 'overview'")
+    expect(appVue).toContain("v-show=\"currentNav === 'overview'\"")
+    expect(appVue).toContain('class="cockpit-grid"')
+    expect(appVue).toContain('class="cockpit-flow"')
+    expect(appVue).toContain('cockpit-recommendations')
+    expect(css).toContain('.cockpit-grid')
+    expect(css).toContain('.cockpit-flow')
+    expect(css).toContain('.cockpit-recommendations')
+  })
 })
