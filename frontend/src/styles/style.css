@@ -81,21 +81,6 @@ select,
   display: none;
 }
 
-.ep-shell {
-  min-height: 100vh;
-  background: transparent;
-}
-
-.ep-aside {
-  background: linear-gradient(180deg, var(--brand-900) 0%, var(--brand-800) 58%, var(--brand-700) 100%);
-  border-right: 1px solid rgba(255, 255, 255, 0.2);
-  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.14);
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 14px;
-}
-
 .ep-brand {
   border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 14px;
@@ -213,16 +198,6 @@ select,
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.ep-content {
-  padding: 12px;
-}
-
-.ep-section {
-  display: grid;
-  gap: 10px;
-  animation: riseIn 0.24s ease-out;
 }
 
 .ep-row-gap {
@@ -1627,19 +1602,6 @@ select,
   border-radius: 10px;
 }
 
-/* Workspace UX refresh */
-.ep-shell {
-  color: var(--ink);
-  background: var(--bg-page);
-}
-
-.ep-aside {
-  background: #182638;
-  border-right: 1px solid #23364d;
-  box-shadow: none;
-  padding: 16px 12px;
-}
-
 .ep-brand {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius);
@@ -1737,10 +1699,6 @@ select,
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.06);
-}
-
-.ep-content {
-  padding: 14px 18px 20px;
 }
 
 .workspace-topbar {
@@ -2450,7 +2408,6 @@ select,
   min-height: 34px;
 }
 
-/* Enterprise product system refresh */
 :root {
   --bg-page: #eef2f6;
   --ink: #0f172a;
@@ -2466,12 +2423,6 @@ select,
 
 body {
   background: var(--bg-page);
-}
-
-.ep-aside {
-  background: #111827;
-  border-right: 1px solid #263244;
-  padding: 18px 12px;
 }
 
 .ep-brand {
@@ -2519,10 +2470,6 @@ body {
 
 .ep-side-card {
   background: #162033;
-}
-
-.ep-content {
-  padding: 16px 20px 24px;
 }
 
 .workspace-topbar {
@@ -3247,15 +3194,6 @@ body {
 }
 
 @media (max-width: 1160px) {
-  .ep-shell {
-    display: block;
-  }
-
-  .ep-aside {
-    width: 100% !important;
-    padding: 12px;
-  }
-
   .ep-main {
     min-width: 100%;
   }
@@ -3321,14 +3259,6 @@ body {
 }
 
 @media (max-width: 768px) {
-  .ep-content {
-    padding: 10px;
-  }
-
-  .ep-aside {
-    padding: 10px;
-  }
-
   .ep-brand {
     padding: 10px;
   }
@@ -3915,8 +3845,10 @@ body {
 }
 
 .ep-section {
+  display: grid;
   max-width: 1280px;
   gap: 16px;
+  animation: riseIn 0.24s ease-out;
 }
 
 .dashboard-overview,
@@ -4354,9 +4286,18 @@ body {
 }
 
 @media (max-width: 1160px) {
+  .ep-shell {
+    display: block;
+  }
+
   .ep-aside {
     position: static;
     height: auto;
+    width: 100% !important;
+  }
+
+  .ep-main {
+    min-width: 100%;
   }
 
   .ep-nav.el-menu {

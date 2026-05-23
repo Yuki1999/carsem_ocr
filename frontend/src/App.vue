@@ -3379,7 +3379,7 @@ onBeforeUnmount(() => {
           </div>
         </el-dialog>
 
-        <section v-show="currentNav === 'overview'" class="ep-section dashboard-overview">
+        <section v-if="currentNav === 'overview'" class="ep-section dashboard-overview">
           <div class="overview-meta-row">
             <span>数据更新于 2 分钟前</span>
             <el-button text :icon="RefreshRight" :loading="platformInsightsLoading" @click="refreshCurrentWorkspace">刷新</el-button>
@@ -3499,7 +3499,7 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <section v-show="currentNav === 'template'" class="ep-section template-center-shell">
+        <section v-if="currentNav === 'template'" class="ep-section template-center-shell">
           <div class="section-hero">
             <div>
               <p class="section-kicker">Template Center</p>
@@ -3802,7 +3802,7 @@ onBeforeUnmount(() => {
           </el-dialog>
         </section>
 
-        <section v-show="currentNav === 'extract'" class="ep-section processing-workbench">
+        <section v-if="currentNav === 'extract'" class="ep-section processing-workbench">
           <div class="workbench-config-panel design-panel">
             <div class="design-panel-head">
               <strong>任务配置</strong>
@@ -4158,7 +4158,7 @@ onBeforeUnmount(() => {
           </el-dialog>
         </section>
 
-        <section v-show="currentNav === 'result'" class="ep-section result-section review-center-shell">
+        <section v-if="currentNav === 'result'" class="ep-section result-section review-center-shell">
           <div class="section-hero">
             <div>
               <p class="section-kicker">Result Center</p>
@@ -4260,230 +4260,230 @@ onBeforeUnmount(() => {
                 <template v-else>
                   <div class="result-main-layout">
                     <div class="result-main-primary">
-                  <div class="case-summary-band">
-                    <div class="case-summary-copy">
-                      <p class="case-summary-kicker">Active Case</p>
-                      <h4>{{ activeCaseSummaryTitle }}</h4>
-                      <p>{{ activeCaseNarrative }}</p>
-                    </div>
-                    <div class="case-summary-metrics">
-                      <span class="case-pill">来源 {{ activeResultVendor }}</span>
-                      <span class="case-pill">类型 {{ activeResultDocType }}</span>
-                      <span class="case-pill">模板 {{ activeResultTemplateName }}</span>
-                      <span class="case-pill">模型 {{ activeResult.model_version || activeResult.backend || '-' }}</span>
-                      <span class="case-pill">记录 {{ historyDetail?.created_at ? formatTime(historyDetail.created_at) : '-' }}</span>
-                      <span class="case-pill" :class="{ success: submissionDraftSummary.submitStatus === 'succeeded', warning: submissionDraftSummary.hasReviewWarnings }">
-                        {{ workspaceReviewLabel }}
-                      </span>
-                    </div>
-                  </div>
-
-                  <el-descriptions :column="resultDescColumns" border size="small" class="result-desc">
-                    <el-descriptions-item label="来源">{{ activeResultVendor }}</el-descriptions-item>
-                    <el-descriptions-item label="类型">{{ activeResultDocType }}</el-descriptions-item>
-                    <el-descriptions-item label="模型">{{ activeResult.model_version || activeResult.backend || '-' }}</el-descriptions-item>
-                    <el-descriptions-item label="方法">{{ activeResult.parse_method || '-' }}</el-descriptions-item>
-                    <el-descriptions-item label="LLM">{{ activeResult.llm_model || '-' }}</el-descriptions-item>
-                    <el-descriptions-item label="区域规则">{{ activeResult.region_rules_count || 0 }}</el-descriptions-item>
-                    <el-descriptions-item label="自动模式">{{ activeAutoModeEnabled ? '已开启' : '已关闭' }}</el-descriptions-item>
-                    <el-descriptions-item label="记录时间">{{ historyDetail?.created_at ? formatTime(historyDetail.created_at) : '-' }}</el-descriptions-item>
-                  </el-descriptions>
-
-                  <el-alert
-                    v-if="activeAutoModeView.enabled && activeAutoModeView.status !== 'idle'"
-                    class="top-gap"
-                    :title="activeAutoModeView.title"
-                    :description="activeAutoModeView.description"
-                    :type="activeAutoModeView.type"
-                    :closable="false"
-                    show-icon
-                  />
-
-                  <div class="result-workspace-grid top-gap">
-                    <div class="workspace-primary">
-                      <el-tabs v-model="resultWorkspaceTab" class="workspace-tabs result-workspace-tabs">
-                        <el-tab-pane label="字段结果" name="fields">
-                      <el-card shadow="never" class="workspace-panel">
-                        <template #header>
-                          <div class="ep-card-head spread">
-                            <span>提取发现</span>
-                            <div class="ep-inline-actions">
-                              <el-tag type="success">命中 {{ hitCount }}</el-tag>
-                              <el-tag type="info">字段 {{ rows.length }}</el-tag>
-                            </div>
-                          </div>
-                        </template>
-                        <el-empty v-if="visibleRows.length === 0" description="无已命中字段" />
-                        <div v-else class="result-field-grid findings-grid">
-                          <div
-                            v-for="row in visibleRows"
-                            :key="row.key"
-                            class="result-field-item"
-                          >
-                            <div
-                              class="result-field-jump"
-                              role="button"
-                              tabindex="0"
-                              @click="jumpToField(row)"
-                              @keydown.enter.prevent="jumpToField(row)"
-                              @keydown.space.prevent="jumpToField(row)"
-                            >
-                              <div class="result-field-item-head">
-                                <span class="result-field-item-label">字段</span>
-                                <span class="result-field-actions">
-                                  <el-tag :type="hasDetectedValue(row.raw) ? 'success' : 'info'" size="small">{{ hasDetectedValue(row.raw) ? '已命中' : '未识别' }}</el-tag>
-                                  <el-button text type="primary" @click.stop="openFieldDetail(row)">详情</el-button>
-                                </span>
-                              </div>
-                              <div class="result-key-cell">{{ row.key }}</div>
-                            </div>
-                            <div class="result-value-block">
-                              <span class="result-field-item-label">值</span>
-                              <div class="result-value-cell">{{ row.value || '-' }}</div>
-                            </div>
-                          </div>
+                      <div class="case-summary-band">
+                        <div class="case-summary-copy">
+                          <p class="case-summary-kicker">Active Case</p>
+                          <h4>{{ activeCaseSummaryTitle }}</h4>
+                          <p>{{ activeCaseNarrative }}</p>
                         </div>
-                      </el-card>
-                        </el-tab-pane>
-
-                        <el-tab-pane label="商品明细" name="goods">
-                      <el-card v-if="sublistBlocks.length > 0" shadow="never" class="workspace-panel">
-                        <template #header>
-                          <div class="ep-card-head spread">
-                            <span>商品明细</span>
-                            <div class="ep-inline-actions">
-                              <el-tag type="success">命中 {{ sublistRowCount }}</el-tag>
-                              <el-tag type="warning">缺失 0</el-tag>
-                              <el-button text type="primary" @click="downloadResult">
-                                <el-icon><Download /></el-icon>
-                                导出
-                              </el-button>
-                            </div>
-                          </div>
-                        </template>
-                        <div v-for="block in sublistBlocks" :key="block.field" class="top-gap-xs">
-                          <p class="field-hint">{{ block.field }}</p>
-                          <el-table :data="block.rows" border stripe size="small" class="top-gap-xs">
-                            <el-table-column type="index" label="#" width="56" />
-                            <el-table-column
-                              v-for="col in block.columns"
-                              :key="`${block.field}_${col}`"
-                              :label="col"
-                              min-width="140"
-                            >
-                              <template #default="{ row }">{{ row[col] || '-' }}</template>
-                            </el-table-column>
-                          </el-table>
+                        <div class="case-summary-metrics">
+                          <span class="case-pill">来源 {{ activeResultVendor }}</span>
+                          <span class="case-pill">类型 {{ activeResultDocType }}</span>
+                          <span class="case-pill">模板 {{ activeResultTemplateName }}</span>
+                          <span class="case-pill">模型 {{ activeResult.model_version || activeResult.backend || '-' }}</span>
+                          <span class="case-pill">记录 {{ historyDetail?.created_at ? formatTime(historyDetail.created_at) : '-' }}</span>
+                          <span class="case-pill" :class="{ success: submissionDraftSummary.submitStatus === 'succeeded', warning: submissionDraftSummary.hasReviewWarnings }">
+                            {{ workspaceReviewLabel }}
+                          </span>
                         </div>
-                      </el-card>
-                          <el-empty v-else description="当前记录没有商品明细" />
-                        </el-tab-pane>
+                      </div>
 
-                        <el-tab-pane label="证据面板" name="evidence">
-                      <el-card shadow="never" class="workspace-panel">
-                        <template #header>
-                          <div class="ep-card-head spread">
-                            <span>证据面板</span>
-                            <div class="ep-inline-actions">
-                              <el-button v-if="resultEvidenceTab === 'markdown'" circle aria-label="弹窗预览" @click="previewModalVisible = true">
-                                <el-icon><FullScreen /></el-icon>
-                              </el-button>
-                              <el-button v-if="resultEvidenceTab === 'markdown'" text @click="previewCollapsed = !previewCollapsed">{{ previewCollapsed ? '展开' : '收起' }}</el-button>
-                              <el-button v-if="selectedHistoryId" text @click="downloadHistoryZip">下载产物包</el-button>
-                            </div>
-                          </div>
-                        </template>
+                      <el-descriptions :column="resultDescColumns" border size="small" class="result-desc">
+                        <el-descriptions-item label="来源">{{ activeResultVendor }}</el-descriptions-item>
+                        <el-descriptions-item label="类型">{{ activeResultDocType }}</el-descriptions-item>
+                        <el-descriptions-item label="模型">{{ activeResult.model_version || activeResult.backend || '-' }}</el-descriptions-item>
+                        <el-descriptions-item label="方法">{{ activeResult.parse_method || '-' }}</el-descriptions-item>
+                        <el-descriptions-item label="LLM">{{ activeResult.llm_model || '-' }}</el-descriptions-item>
+                        <el-descriptions-item label="区域规则">{{ activeResult.region_rules_count || 0 }}</el-descriptions-item>
+                        <el-descriptions-item label="自动模式">{{ activeAutoModeEnabled ? '已开启' : '已关闭' }}</el-descriptions-item>
+                        <el-descriptions-item label="记录时间">{{ historyDetail?.created_at ? formatTime(historyDetail.created_at) : '-' }}</el-descriptions-item>
+                      </el-descriptions>
 
-                        <div class="evidence-tabs" role="tablist" aria-label="证据类型">
-                          <button
-                            v-for="tab in evidenceTabOptions"
-                            :key="tab.key"
-                            type="button"
-                            class="evidence-tab"
-                            :class="{ active: resultEvidenceTab === tab.key }"
-                            @click="resultEvidenceTab = tab.key"
-                          >
-                            {{ tab.label }}
-                          </button>
-                        </div>
+                      <el-alert
+                        v-if="activeAutoModeView.enabled && activeAutoModeView.status !== 'idle'"
+                        class="top-gap"
+                        :title="activeAutoModeView.title"
+                        :description="activeAutoModeView.description"
+                        :type="activeAutoModeView.type"
+                        :closable="false"
+                        show-icon
+                      />
 
-                        <template v-if="resultEvidenceTab === 'original'">
-                          <div v-if="primaryOriginalHistoryFile" class="evidence-panel">
-                            <div class="evidence-panel-head">
-                              <div>
-                                <strong>{{ originalPreviewFile?.path }}</strong>
-                                <span>{{ originalPreviewType === 'pdf' ? '原始 PDF' : '原始图片' }}</span>
-                              </div>
-                              <el-button v-if="originalPreviewUrl" text tag="a" :href="originalPreviewUrl" target="_blank">新窗口打开</el-button>
-                            </div>
-                            <iframe
-                              v-if="originalPreviewType === 'pdf'"
-                              :src="originalPreviewUrl"
-                              class="asset-frame"
-                              title="原始 PDF 预览"
-                            />
-                            <div v-else-if="originalPreviewType === 'image'" class="asset-image-wrap asset-image-stage">
-                              <img :src="originalPreviewUrl" class="asset-image asset-image-large" alt="原始文件预览" />
-                            </div>
-                            <div v-else class="asset-download-tip">
-                              <p>当前原始文件不支持内嵌预览。</p>
-                            </div>
-                          </div>
-                          <el-empty v-else description="当前记录没有可预览的原始文件" />
-                        </template>
-
-                        <template v-else-if="resultEvidenceTab === 'markdown'">
-                          <div v-show="!previewCollapsed" ref="previewPaneRef" class="preview-markdown evidence-surface" v-html="previewHtml" />
-                        </template>
-
-                        <template v-else>
-                          <div v-if="evidenceAssetFiles.length > 0" class="evidence-panel">
-                            <div class="asset-list">
-                              <el-tag
-                                v-for="fileItem in evidenceAssetFiles"
-                                :key="fileItem.path"
-                                class="asset-tag"
-                                effect="plain"
-                                :type="evidenceTagType(fileItem)"
-                                @click="openHistoryFile(fileItem)"
-                              >
-                                {{ evidenceTagLabel(fileItem) }} · {{ fileItem.path }}
-                              </el-tag>
-                            </div>
-
-                            <div v-if="selectedHistoryFile" class="asset-preview-wrap">
-                              <div class="evidence-panel-head">
-                                <div>
-                                  <strong>{{ selectedHistoryFile.path }}</strong>
-                                  <span>{{ evidenceTagLabel(selectedHistoryFile) }}</span>
-                                </div>
-                                <el-button v-if="historyAssetUrl" text tag="a" :href="historyAssetUrl" target="_blank">新窗口打开</el-button>
-                              </div>
-                              <iframe
-                                v-if="selectedHistoryFileType === 'pdf'"
-                                :src="historyAssetUrl"
-                                class="asset-frame asset-preview"
-                                title="文件预览"
-                              />
-                              <div v-else-if="selectedHistoryFileType === 'image'" class="asset-image-wrap asset-image-stage">
-                                <img :src="historyAssetUrl" class="asset-image asset-image-large" alt="产物图片预览" />
-                              </div>
-                              <div v-else-if="selectedHistoryFileIsMarkdown" class="preview-markdown evidence-surface" v-html="historyFileHtml" />
-                              <pre v-else-if="historyFileLoading" class="preview-plain">文件读取中...</pre>
-                              <pre v-else-if="selectedHistoryFileType === 'text'" class="preview-plain">{{ historyFileText || '暂无文件内容' }}</pre>
-                              <div v-else class="asset-download-tip">
-                                <p>该文件暂不支持内嵌预览。</p>
-                                <el-button v-if="historyAssetUrl" type="primary" plain tag="a" :href="historyAssetUrl" target="_blank">打开文件</el-button>
-                              </div>
-                            </div>
-                          </div>
-                          <el-empty v-else description="当前记录没有额外产物文件" />
-                        </template>
-                      </el-card>
-                        </el-tab-pane>
-                                          </el-tabs>
-                                        </div>
+                      <div class="result-workspace-grid top-gap">
+                        <div class="workspace-primary">
+                          <el-tabs v-model="resultWorkspaceTab" class="workspace-tabs result-workspace-tabs">
+                            <el-tab-pane label="字段结果" name="fields">
+                              <el-card shadow="never" class="workspace-panel">
+                                <template #header>
+                                  <div class="ep-card-head spread">
+                                    <span>提取发现</span>
+                                    <div class="ep-inline-actions">
+                                      <el-tag type="success">命中 {{ hitCount }}</el-tag>
+                                      <el-tag type="info">字段 {{ rows.length }}</el-tag>
+                                    </div>
+                                  </div>
+                                </template>
+                                <el-empty v-if="visibleRows.length === 0" description="无已命中字段" />
+                                <div v-else class="result-field-grid findings-grid">
+                                  <div
+                                    v-for="row in visibleRows"
+                                    :key="row.key"
+                                    class="result-field-item"
+                                  >
+                                    <div
+                                      class="result-field-jump"
+                                      role="button"
+                                      tabindex="0"
+                                      @click="jumpToField(row)"
+                                      @keydown.enter.prevent="jumpToField(row)"
+                                      @keydown.space.prevent="jumpToField(row)"
+                                    >
+                                      <div class="result-field-item-head">
+                                        <span class="result-field-item-label">字段</span>
+                                        <span class="result-field-actions">
+                                          <el-tag :type="hasDetectedValue(row.raw) ? 'success' : 'info'" size="small">{{ hasDetectedValue(row.raw) ? '已命中' : '未识别' }}</el-tag>
+                                          <el-button text type="primary" @click.stop="openFieldDetail(row)">详情</el-button>
+                                        </span>
                                       </div>
+                                      <div class="result-key-cell">{{ row.key }}</div>
+                                    </div>
+                                    <div class="result-value-block">
+                                      <span class="result-field-item-label">值</span>
+                                      <div class="result-value-cell">{{ row.value || '-' }}</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </el-card>
+                            </el-tab-pane>
+
+                            <el-tab-pane label="商品明细" name="goods">
+                              <el-card v-if="sublistBlocks.length > 0" shadow="never" class="workspace-panel">
+                                <template #header>
+                                  <div class="ep-card-head spread">
+                                    <span>商品明细</span>
+                                    <div class="ep-inline-actions">
+                                      <el-tag type="success">命中 {{ sublistRowCount }}</el-tag>
+                                      <el-tag type="warning">缺失 0</el-tag>
+                                      <el-button text type="primary" @click="downloadResult">
+                                        <el-icon><Download /></el-icon>
+                                        导出
+                                      </el-button>
+                                    </div>
+                                  </div>
+                                </template>
+                                <div v-for="block in sublistBlocks" :key="block.field" class="top-gap-xs">
+                                  <p class="field-hint">{{ block.field }}</p>
+                                  <el-table :data="block.rows" border stripe size="small" class="top-gap-xs">
+                                    <el-table-column type="index" label="#" width="56" />
+                                    <el-table-column
+                                      v-for="col in block.columns"
+                                      :key="`${block.field}_${col}`"
+                                      :label="col"
+                                      min-width="140"
+                                    >
+                                      <template #default="{ row }">{{ row[col] || '-' }}</template>
+                                    </el-table-column>
+                                  </el-table>
+                                </div>
+                              </el-card>
+                              <el-empty v-else description="当前记录没有商品明细" />
+                            </el-tab-pane>
+
+                            <el-tab-pane label="证据面板" name="evidence">
+                              <el-card shadow="never" class="workspace-panel">
+                                <template #header>
+                                  <div class="ep-card-head spread">
+                                    <span>证据面板</span>
+                                    <div class="ep-inline-actions">
+                                      <el-button v-if="resultEvidenceTab === 'markdown'" circle aria-label="弹窗预览" @click="previewModalVisible = true">
+                                        <el-icon><FullScreen /></el-icon>
+                                      </el-button>
+                                      <el-button v-if="resultEvidenceTab === 'markdown'" text @click="previewCollapsed = !previewCollapsed">{{ previewCollapsed ? '展开' : '收起' }}</el-button>
+                                      <el-button v-if="selectedHistoryId" text @click="downloadHistoryZip">下载产物包</el-button>
+                                    </div>
+                                  </div>
+                                </template>
+
+                                <div class="evidence-tabs" role="tablist" aria-label="证据类型">
+                                  <button
+                                    v-for="tab in evidenceTabOptions"
+                                    :key="tab.key"
+                                    type="button"
+                                    class="evidence-tab"
+                                    :class="{ active: resultEvidenceTab === tab.key }"
+                                    @click="resultEvidenceTab = tab.key"
+                                  >
+                                    {{ tab.label }}
+                                  </button>
+                                </div>
+
+                                <template v-if="resultEvidenceTab === 'original'">
+                                  <div v-if="primaryOriginalHistoryFile" class="evidence-panel">
+                                    <div class="evidence-panel-head">
+                                      <div>
+                                        <strong>{{ originalPreviewFile?.path }}</strong>
+                                        <span>{{ originalPreviewType === 'pdf' ? '原始 PDF' : '原始图片' }}</span>
+                                      </div>
+                                      <el-button v-if="originalPreviewUrl" text tag="a" :href="originalPreviewUrl" target="_blank">新窗口打开</el-button>
+                                    </div>
+                                    <iframe
+                                      v-if="originalPreviewType === 'pdf'"
+                                      :src="originalPreviewUrl"
+                                      class="asset-frame"
+                                      title="原始 PDF 预览"
+                                    />
+                                    <div v-else-if="originalPreviewType === 'image'" class="asset-image-wrap asset-image-stage">
+                                      <img :src="originalPreviewUrl" class="asset-image asset-image-large" alt="原始文件预览" />
+                                    </div>
+                                    <div v-else class="asset-download-tip">
+                                      <p>当前原始文件不支持内嵌预览。</p>
+                                    </div>
+                                  </div>
+                                  <el-empty v-else description="当前记录没有可预览的原始文件" />
+                                </template>
+
+                                <template v-else-if="resultEvidenceTab === 'markdown'">
+                                  <div v-show="!previewCollapsed" ref="previewPaneRef" class="preview-markdown evidence-surface" v-html="previewHtml" />
+                                </template>
+
+                                <template v-else>
+                                  <div v-if="evidenceAssetFiles.length > 0" class="evidence-panel">
+                                    <div class="asset-list">
+                                      <el-tag
+                                        v-for="fileItem in evidenceAssetFiles"
+                                        :key="fileItem.path"
+                                        class="asset-tag"
+                                        effect="plain"
+                                        :type="evidenceTagType(fileItem)"
+                                        @click="openHistoryFile(fileItem)"
+                                      >
+                                        {{ evidenceTagLabel(fileItem) }} · {{ fileItem.path }}
+                                      </el-tag>
+                                    </div>
+
+                                    <div v-if="selectedHistoryFile" class="asset-preview-wrap">
+                                      <div class="evidence-panel-head">
+                                        <div>
+                                          <strong>{{ selectedHistoryFile.path }}</strong>
+                                          <span>{{ evidenceTagLabel(selectedHistoryFile) }}</span>
+                                        </div>
+                                        <el-button v-if="historyAssetUrl" text tag="a" :href="historyAssetUrl" target="_blank">新窗口打开</el-button>
+                                      </div>
+                                      <iframe
+                                        v-if="selectedHistoryFileType === 'pdf'"
+                                        :src="historyAssetUrl"
+                                        class="asset-frame asset-preview"
+                                        title="文件预览"
+                                      />
+                                      <div v-else-if="selectedHistoryFileType === 'image'" class="asset-image-wrap asset-image-stage">
+                                        <img :src="historyAssetUrl" class="asset-image asset-image-large" alt="产物图片预览" />
+                                      </div>
+                                      <div v-else-if="selectedHistoryFileIsMarkdown" class="preview-markdown evidence-surface" v-html="historyFileHtml" />
+                                      <pre v-else-if="historyFileLoading" class="preview-plain">文件读取中...</pre>
+                                      <pre v-else-if="selectedHistoryFileType === 'text'" class="preview-plain">{{ historyFileText || '暂无文件内容' }}</pre>
+                                      <div v-else class="asset-download-tip">
+                                        <p>该文件暂不支持内嵌预览。</p>
+                                        <el-button v-if="historyAssetUrl" type="primary" plain tag="a" :href="historyAssetUrl" target="_blank">打开文件</el-button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <el-empty v-else description="当前记录没有额外产物文件" />
+                                </template>
+                              </el-card>
+                            </el-tab-pane>
+                          </el-tabs>
+                        </div>
+                      </div>
                     </div>
 
                     <div class="workspace-secondary">
@@ -4667,7 +4667,7 @@ onBeforeUnmount(() => {
           </el-dialog>
         </section>
 
-        <section v-show="currentNav === 'evidence'" class="ep-section evidence-center-shell">
+        <section v-if="currentNav === 'evidence'" class="ep-section evidence-center-shell">
           <div class="design-panel placeholder-workspace">
             <div>
               <p class="section-kicker">Evidence Center</p>
@@ -4678,7 +4678,7 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <section v-show="currentNav === 'automation'" class="ep-section automation-center-shell">
+        <section v-if="currentNav === 'automation'" class="ep-section automation-center-shell">
           <div class="design-panel placeholder-workspace">
             <div>
               <p class="section-kicker">Automation Tasks</p>
@@ -4689,7 +4689,7 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <section v-show="currentNav === 'settings'" class="ep-section settings-console">
+        <section v-if="currentNav === 'settings'" class="ep-section settings-console">
           <div class="section-hero">
             <div>
               <p class="section-kicker">System Settings</p>

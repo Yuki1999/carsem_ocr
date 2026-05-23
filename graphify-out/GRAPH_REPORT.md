@@ -1,11 +1,11 @@
 # Graph Report - .  (2026-05-23)
 
 ## Corpus Check
-- 62 files · ~892,839 words
+- 62 files · ~893,072 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 452 nodes · 781 edges · 34 communities detected
+- 453 nodes · 782 edges · 33 communities detected
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS
 - Token cost: 0 input · 0 output
 
@@ -35,8 +35,8 @@ Cohesion: 0.03
 Nodes (0):
 
 ### Community 2 - "Community 2"
-Cohesion: 0.15
-Nodes (27): _append_page_margins_to_markdown(), _collect_page_margin_items(), _collect_text_nodes(), _decode_text(), _dedupe_page_margin_items(), _download_and_parse_zip(), _extract_file_url(), _extract_margin_text() (+19 more)
+Cohesion: 0.12
+Nodes (31): _append_page_margins_to_markdown(), _collect_page_margin_items(), _collect_text_nodes(), _decode_text(), _dedupe_page_margin_items(), _download_and_parse_zip(), _extract_file_url(), _extract_margin_text() (+23 more)
 
 ### Community 3 - "Community 3"
 Cohesion: 0.11
@@ -112,30 +112,30 @@ Nodes (3): buildExtractRequestFields(), normalizeOcrEngine(), normalizeTemplateO
 
 ### Community 21 - "Community 21"
 Cohesion: 0.7
-Nodes (4): _read_first_json(), _read_first_text(), _read_output_dir(), run_opendataloader_and_read_text()
-
-### Community 22 - "Community 22"
-Cohesion: 0.7
 Nodes (4): _make_xlsx(), test_build_extract_payload_routes_xlsx_to_excel_text(), test_run_excel_and_read_text_adds_compact_table_for_sparse_invoice_rows(), test_run_excel_and_read_text_reads_xlsx_rows()
 
-### Community 23 - "Community 23"
+### Community 22 - "Community 22"
 Cohesion: 0.4
 Nodes (0):
 
-### Community 24 - "Community 24"
+### Community 23 - "Community 23"
 Cohesion: 0.83
 Nodes (3): bootstrap(), renderBootError(), tryRecoverAndReload()
 
-### Community 25 - "Community 25"
+### Community 24 - "Community 24"
 Cohesion: 0.67
 Nodes (2): buildAutoModeStatusView(), resolveStageLabel()
 
-### Community 26 - "Community 26"
+### Community 25 - "Community 25"
 Cohesion: 0.67
 Nodes (2): choosePreferredMarkdownPreview(), isImageOnlyMarkdown()
 
-### Community 27 - "Community 27"
+### Community 26 - "Community 26"
 Cohesion: 0.67
+Nodes (0):
+
+### Community 27 - "Community 27"
+Cohesion: 1.0
 Nodes (0):
 
 ### Community 28 - "Community 28"
@@ -158,13 +158,11 @@ Nodes (0):
 Cohesion: 1.0
 Nodes (0):
 
-### Community 33 - "Community 33"
-Cohesion: 1.0
-Nodes (0):
-
 ## Knowledge Gaps
 - **11 isolated node(s):** `Persistence and settings store modules.`, `使用 Playwright 登录报关系统并提交一份草稿数据。`, `记录弹窗文案，并确保弹窗被接受，不阻塞后续页面脚本。`, `优先点击常见的保存/提交按钮，找不到时再退回到原生表单提交。`, `尽量等待提交后的页面反馈完成，避免立即读取结果导致误判。` (+6 more)
   These have ≤1 connection - possible missing edges or undocumented components.
+- **Thin community `Community 27`** (2 nodes): `layoutDensity.test.js`, `countSelector()`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 28`** (2 nodes): `__init__.py`, `Persistence and settings store modules.`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 29`** (2 nodes): `test_project_structure.py`, `test_backend_structure_imports()`
@@ -174,8 +172,6 @@ Nodes (0):
 - **Thin community `Community 31`** (2 nodes): `test_platform_insights.py`, `test_platform_insights_api_summarizes_queue_templates_review_and_automation()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 32`** (1 nodes): `vite.config.js`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 33`** (1 nodes): `layoutDensity.test.js`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 
 ## Suggested Questions
@@ -187,5 +183,7 @@ _Questions this graph is uniquely positioned to answer:_
   _Cohesion score 0.06 - nodes in this community are weakly interconnected._
 - **Should `Community 1` be split into smaller, more focused modules?**
   _Cohesion score 0.03 - nodes in this community are weakly interconnected._
+- **Should `Community 2` be split into smaller, more focused modules?**
+  _Cohesion score 0.12 - nodes in this community are weakly interconnected._
 - **Should `Community 3` be split into smaller, more focused modules?**
   _Cohesion score 0.11 - nodes in this community are weakly interconnected._

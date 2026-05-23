@@ -6,6 +6,11 @@ const css = readFileSync(resolve(__dirname, '../../styles/style.css'), 'utf8')
 const appVue = readFileSync(resolve(__dirname, '../../App.vue'), 'utf8')
 
 describe('layout density CSS', () => {
+  const countSelector = (selector) => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return (css.match(new RegExp(`${escaped}\\s*\\{`, 'g')) || []).length
+  }
+
   it('matches the NovaIDP design shell with overview as the default entry', () => {
     expect(appVue).toContain('NovaIDP')
     expect(appVue).toContain("const currentNav = ref('overview')")
@@ -96,5 +101,23 @@ describe('layout density CSS', () => {
     expect(appVue).toContain('class="upload-wizard-steps"')
     expect(css).toContain('.focus-workspace')
     expect(css).toContain('.upload-wizard-dialog')
+  })
+
+  it('does not keep stacked legacy shell styling layers after the NovaIDP redesign', () => {
+    expect(css).not.toContain('Workspace UX refresh')
+    expect(css).not.toContain('Enterprise product system refresh')
+    expect(countSelector('.ep-shell')).toBeLessThanOrEqual(2)
+    expect(countSelector('.ep-aside')).toBeLessThanOrEqual(2)
+    expect(countSelector('.ep-content')).toBeLessThanOrEqual(2)
+    expect(countSelector('.ep-section')).toBeLessThanOrEqual(2)
+    expect(css).toMatch(/@media \(max-width:\s*1160px\)[\s\S]*\.ep-shell\s*\{[^}]*display:\s*block/s)
+    expect(css).toMatch(/@media \(max-width:\s*1160px\)[\s\S]*\.ep-main\s*\{[^}]*min-width:\s*100%/s)
+  })
+
+  it('keeps review workspace markup nested without leaking tab content as page text', () => {
+    expect(appVue).not.toContain('</el-tabs>\n                                        </div>\n                                      </div>')
+    expect(appVue).not.toContain('v-show="currentNav ===')
+    expect(appVue).toContain('v-if="currentNav ===')
+    expect(appVue).toMatch(/<div class="result-main-layout">[\s\S]*<div class="result-main-primary">[\s\S]*<div class="workspace-secondary">[\s\S]*<\/div>\s*<\/div>\s*<\/template>/)
   })
 })

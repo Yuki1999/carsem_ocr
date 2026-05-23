@@ -17,7 +17,7 @@
       "source_file": "/home/qqr/carsem_ocr/app/main.py",
       "source_location": "L1",
       "id": "main",
-      "community": 24
+      "community": 23
     },
     {
       "label": "tryRecoverAndReload()",
@@ -25,7 +25,7 @@
       "source_file": "/home/qqr/carsem_ocr/frontend/src/main.js",
       "source_location": "L8",
       "id": "main_tryrecoverandreload",
-      "community": 24
+      "community": 23
     },
     {
       "label": "renderBootError()",
@@ -33,7 +33,7 @@
       "source_file": "/home/qqr/carsem_ocr/frontend/src/main.js",
       "source_location": "L19",
       "id": "main_renderbooterror",
-      "community": 24
+      "community": 23
     },
     {
       "label": "bootstrap()",
@@ -41,7 +41,7 @@
       "source_file": "/home/qqr/carsem_ocr/frontend/src/main.js",
       "source_location": "L32",
       "id": "main_bootstrap",
-      "community": 24
+      "community": 23
     },
     {
       "label": "projectStructure.test.js",
@@ -145,7 +145,7 @@
       "source_file": "frontend/src/features/auto-mode/autoModeStatus.test.js",
       "source_location": "L1",
       "id": "automodestatus_test",
-      "community": 25
+      "community": 24
     },
     {
       "label": "autoModePersistence.test.js",
@@ -161,7 +161,7 @@
       "source_file": "frontend/src/features/auto-mode/autoModeStatus.js",
       "source_location": "L1",
       "id": "automodestatus",
-      "community": 25
+      "community": 24
     },
     {
       "label": "resolveStageLabel()",
@@ -169,7 +169,7 @@
       "source_file": "frontend/src/features/auto-mode/autoModeStatus.js",
       "source_location": "L14",
       "id": "automodestatus_resolvestagelabel",
-      "community": 25
+      "community": 24
     },
     {
       "label": "buildAutoModeStatusView()",
@@ -177,7 +177,7 @@
       "source_file": "frontend/src/features/auto-mode/autoModeStatus.js",
       "source_location": "L18",
       "id": "automodestatus_buildautomodestatusview",
-      "community": 25
+      "community": 24
     },
     {
       "label": "llmSettings.js",
@@ -353,7 +353,7 @@
       "source_file": "/home/qqr/carsem_ocr/frontend/src/features/evidence/evidencePreview.js",
       "source_location": "L1",
       "id": "evidencepreview",
-      "community": 26
+      "community": 25
     },
     {
       "label": "isImageOnlyMarkdown()",
@@ -361,7 +361,7 @@
       "source_file": "/home/qqr/carsem_ocr/frontend/src/features/evidence/evidencePreview.js",
       "source_location": "L1",
       "id": "evidencepreview_isimageonlymarkdown",
-      "community": 26
+      "community": 25
     },
     {
       "label": "choosePreferredMarkdownPreview()",
@@ -369,7 +369,7 @@
       "source_file": "/home/qqr/carsem_ocr/frontend/src/features/evidence/evidencePreview.js",
       "source_location": "L12",
       "id": "evidencepreview_choosepreferredmarkdownpreview",
-      "community": 26
+      "community": 25
     },
     {
       "label": "historyEvidence.js",
@@ -449,7 +449,7 @@
       "source_file": "/home/qqr/carsem_ocr/frontend/src/features/evidence/evidencePreview.test.js",
       "source_location": "L1",
       "id": "evidencepreview_test",
-      "community": 26
+      "community": 25
     },
     {
       "label": "ocrEngine.js",
@@ -689,7 +689,15 @@
       "source_file": "frontend/src/features/ui/layoutDensity.test.js",
       "source_location": "L1",
       "id": "layoutdensity_test",
-      "community": 33
+      "community": 27
+    },
+    {
+      "label": "countSelector()",
+      "file_type": "code",
+      "source_file": "frontend/src/features/ui/layoutDensity.test.js",
+      "source_location": "L9",
+      "id": "layoutdensity_test_countselector",
+      "community": 27
     },
     {
       "label": "__init__.py",
@@ -761,7 +769,7 @@
       "source_file": "/home/qqr/carsem_ocr/app/services/opendataloader_extractor.py",
       "source_location": "L1",
       "id": "opendataloader_extractor",
-      "community": 21
+      "community": 2
     },
     {
       "label": "customs_submission.py",
@@ -793,7 +801,7 @@
       "source_file": "/home/qqr/carsem_ocr/app/services/text_extract.py",
       "source_location": "L1",
       "id": "text_extract",
-      "community": 27
+      "community": 26
     },
     {
       "label": "llm_settings_store.py",
@@ -1857,7 +1865,7 @@
       "source_file": "/home/qqr/carsem_ocr/app/services/opendataloader_extractor.py",
       "source_location": "L19",
       "id": "opendataloader_extractor_run_opendataloader_and_read_text",
-      "community": 21
+      "community": 2
     },
     {
       "label": "_read_output_dir()",
@@ -1865,7 +1873,7 @@
       "source_file": "/home/qqr/carsem_ocr/app/services/opendataloader_extractor.py",
       "source_location": "L81",
       "id": "opendataloader_extractor_read_output_dir",
-      "community": 21
+      "community": 2
     },
     {
       "label": "_read_first_text()",
@@ -1873,7 +1881,7 @@
       "source_file": "/home/qqr/carsem_ocr/app/services/opendataloader_extractor.py",
       "source_location": "L126",
       "id": "opendataloader_extractor_read_first_text",
-      "community": 21
+      "community": 2
     },
     {
       "label": "_read_first_json()",
@@ -1881,7 +1889,7 @@
       "source_file": "/home/qqr/carsem_ocr/app/services/opendataloader_extractor.py",
       "source_location": "L136",
       "id": "opendataloader_extractor_read_first_json",
-      "community": 21
+      "community": 2
     },
     {
       "label": "build_submission_draft()",
@@ -2425,7 +2433,7 @@
       "source_file": "/home/qqr/carsem_ocr/app/services/text_extract.py",
       "source_location": "L5",
       "id": "text_extract_extract_kv_fields",
-      "community": 27
+      "community": 26
     },
     {
       "label": "extract_targets_from_annotation()",
@@ -2433,7 +2441,7 @@
       "source_file": "/home/qqr/carsem_ocr/app/services/text_extract.py",
       "source_location": "L25",
       "id": "text_extract_extract_targets_from_annotation",
-      "community": 27
+      "community": 26
     },
     {
       "label": "excel_extractor.py",
@@ -2953,7 +2961,7 @@
       "source_file": "tests/test_excel_extractor.py",
       "source_location": "L1",
       "id": "test_excel_extractor",
-      "community": 22
+      "community": 21
     },
     {
       "label": "_make_xlsx()",
@@ -2961,7 +2969,7 @@
       "source_file": "tests/test_excel_extractor.py",
       "source_location": "L6",
       "id": "test_excel_extractor_make_xlsx",
-      "community": 22
+      "community": 21
     },
     {
       "label": "test_run_excel_and_read_text_reads_xlsx_rows()",
@@ -2969,7 +2977,7 @@
       "source_file": "tests/test_excel_extractor.py",
       "source_location": "L78",
       "id": "test_excel_extractor_test_run_excel_and_read_text_reads_xlsx_rows",
-      "community": 22
+      "community": 21
     },
     {
       "label": "test_run_excel_and_read_text_adds_compact_table_for_sparse_invoice_rows()",
@@ -2977,7 +2985,7 @@
       "source_file": "tests/test_excel_extractor.py",
       "source_location": "L99",
       "id": "test_excel_extractor_test_run_excel_and_read_text_adds_compact_table_for_sparse_invoice_rows",
-      "community": 22
+      "community": 21
     },
     {
       "label": "test_build_extract_payload_routes_xlsx_to_excel_text()",
@@ -2985,7 +2993,7 @@
       "source_file": "tests/test_excel_extractor.py",
       "source_location": "L127",
       "id": "test_excel_extractor_test_build_extract_payload_routes_xlsx_to_excel_text",
-      "community": 22
+      "community": 21
     },
     {
       "label": "test_project_structure.py",
@@ -3025,7 +3033,7 @@
       "source_file": "tests/test_customs_packet.py",
       "source_location": "L1",
       "id": "test_customs_packet",
-      "community": 23
+      "community": 22
     },
     {
       "label": "test_packet_draft_uses_invoice_original_rows_without_merging()",
@@ -3033,7 +3041,7 @@
       "source_file": "tests/test_customs_packet.py",
       "source_location": "L1",
       "id": "test_customs_packet_test_packet_draft_uses_invoice_original_rows_without_merging",
-      "community": 23
+      "community": 22
     },
     {
       "label": "test_packet_draft_marks_mismatch_but_keeps_invoice_quantity()",
@@ -3041,7 +3049,7 @@
       "source_file": "tests/test_customs_packet.py",
       "source_location": "L46",
       "id": "test_customs_packet_test_packet_draft_marks_mismatch_but_keeps_invoice_quantity",
-      "community": 23
+      "community": 22
     },
     {
       "label": "test_packet_draft_preserves_header_candidates_with_recommended_value()",
@@ -3049,7 +3057,7 @@
       "source_file": "tests/test_customs_packet.py",
       "source_location": "L77",
       "id": "test_customs_packet_test_packet_draft_preserves_header_candidates_with_recommended_value",
-      "community": 23
+      "community": 22
     },
     {
       "label": "test_build_submission_draft_routes_packet_structures_to_packet_rules()",
@@ -3057,7 +3065,7 @@
       "source_file": "tests/test_customs_packet.py",
       "source_location": "L105",
       "id": "test_customs_packet_test_build_submission_draft_routes_packet_structures_to_packet_rules",
-      "community": 23
+      "community": 22
     },
     {
       "label": "test_qwen_vision_extractor.py",
@@ -5179,6 +5187,18 @@
       "_tgt": "layeredinteractions_hasdetectedvalue",
       "source": "layeredinteractions_hasdetectedvalue",
       "target": "layeredinteractions_buildfielddetailview",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "frontend/src/features/ui/layoutDensity.test.js",
+      "source_location": "L9",
+      "weight": 1.0,
+      "_src": "layoutdensity_test",
+      "_tgt": "layoutdensity_test_countselector",
+      "source": "layoutdensity_test",
+      "target": "layoutdensity_test_countselector",
       "confidence_score": 1.0
     },
     {
