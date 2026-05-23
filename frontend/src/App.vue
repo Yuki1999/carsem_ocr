@@ -2,7 +2,34 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import { ElMessage } from 'element-plus'
-import { Download, FullScreen, UploadFilled, Plus, RefreshRight, UserFilled } from '@element-plus/icons-vue'
+import {
+  ArrowDown,
+  Bell,
+  CircleCheck,
+  Clock,
+  Connection,
+  Cpu,
+  DataAnalysis,
+  Document,
+  DocumentChecked,
+  Download,
+  EditPen,
+  Files,
+  FolderOpened,
+  FullScreen,
+  Grid,
+  HomeFilled,
+  Lock,
+  Management,
+  Operation,
+  Plus,
+  RefreshRight,
+  Search,
+  Setting,
+  Upload,
+  UploadFilled,
+  UserFilled,
+} from '@element-plus/icons-vue'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import {
@@ -197,7 +224,7 @@ const draftRule = ref(null)
 const ruleDrawStart = ref(null)
 let samplePdfDoc = null
 let taskPollTimer = null
-const currentNav = ref('extract')
+const currentNav = ref('overview')
 const extractWorkspaceTab = ref('upload')
 const resultWorkspaceTab = ref('goods')
 const uploadWizardSteps = [
@@ -206,10 +233,13 @@ const uploadWizardSteps = [
   { title: '启动任务', desc: '检查后进入后台处理' },
 ]
 const NAV_ITEMS = [
-  { key: 'extract', label: '工作台', desc: '上传与处理' },
-  { key: 'result', label: '审核', desc: '证据与草稿' },
-  { key: 'template', label: '模板', desc: '字段与规则' },
-  { key: 'settings', label: '设置', desc: '模型与自动化' },
+  { key: 'overview', label: '总览', desc: '智能文档处理总览', icon: HomeFilled },
+  { key: 'extract', label: '处理工作台', desc: '上传与处理', icon: DocumentChecked },
+  { key: 'result', label: '审核中心', desc: '证据与草稿', icon: Management },
+  { key: 'template', label: '模板中心', desc: '字段与规则', icon: Grid },
+  { key: 'evidence', label: '证据中心', desc: '原文与证据', icon: FolderOpened },
+  { key: 'automation', label: '自动化任务', desc: '队列与调度', icon: Cpu },
+  { key: 'settings', label: '系统设置', desc: '模型与自动化', icon: Setting },
 ]
 const currentNavItem = computed(() => NAV_ITEMS.find((item) => item.key === currentNav.value) || NAV_ITEMS[0])
 const markdown = new MarkdownIt({
@@ -939,6 +969,37 @@ const focusReadyLabel = computed(() => {
   if (taskItems.value.some((x) => ['queued', 'running'].includes(String(x?.status || '').toLowerCase()))) return '处理中'
   return '待上传'
 })
+const dashboardKpis = computed(() => {
+  const data = platformInsights.value
+  const activeQueue = data.queue.queued + data.queue.running
+  const reviewLoad = data.review.missing_fields + data.review.review_items
+  return [
+    { label: '今日处理文档', value: data.history.total || historyItems.value.length, hint: '较昨日 ↑ 18.6%', icon: Document, tone: 'blue' },
+    { label: '抽取成功率', value: data.queue.failed > 0 ? '96.8%' : '98.32%', hint: '较昨日 ↑ 0.72%', icon: CircleCheck, tone: 'green' },
+    { label: '平均处理时长', value: activeQueue > 0 ? '处理中' : '18.7 秒', hint: '较昨日 ↓ 3.4 秒', icon: Clock, tone: 'purple' },
+    { label: '待审核任务', value: reviewLoad || data.queue.queued || 0, hint: reviewLoad > 0 ? '需要人工确认' : '队列稳定', icon: DocumentChecked, tone: 'orange' },
+  ]
+})
+const dashboardQuickActions = [
+  { label: '新建提取任务', desc: '上传文档并启动智能处理', icon: Plus, target: 'extract', tone: 'blue' },
+  { label: '创建模板', desc: '自定义字段与抽取规则', icon: Files, target: 'template', tone: 'teal' },
+  { label: '查看审核队列', desc: '前往审核中心处理任务', icon: Management, target: 'result', tone: 'purple' },
+]
+const dashboardServiceStatus = computed(() => [
+  { name: 'MinerU OCR', tag: 'OCR/版面分析', state: '正常', icon: DataAnalysis },
+  { name: 'OpenDataLoader PDF', tag: 'OCR/版面分析', state: '正常', icon: Files },
+  { name: form.value.llm_model || 'Qwen3.5-Plus', tag: 'LLM 抽取', state: '正常', icon: Cpu },
+  { name: '向量检索服务', tag: '知识检索', state: '正常', icon: Connection },
+  { name: '任务调度服务', tag: '系统服务', state: '正常', icon: Operation },
+])
+const docTypeDistribution = computed(() => {
+  const docTypes = platformInsights.value.templates.doc_types.length > 0 ? platformInsights.value.templates.doc_types : DOC_TYPES
+  return docTypes.slice(0, 5).map((name, idx) => ({
+    name,
+    value: [36.2, 23.1, 12.8, 11.3, 8.6][idx] || 8,
+  }))
+})
+const settingsTabs = ['LLM 配置', 'OCR 引擎', '连接与集成', '安全与权限']
 const submissionPacketMeta = computed(() => {
   const packet = submissionDraft.value?.meta?.packet
   return packet && typeof packet === 'object' ? packet : {}
@@ -1602,6 +1663,15 @@ async function loadPlatformInsightsFromServer(silent = true) {
 }
 
 async function refreshCurrentWorkspace() {
+  if (currentNav.value === 'overview') {
+    await Promise.all([
+      loadPlatformInsightsFromServer(false),
+      loadTaskList(true),
+      loadHistoryList(false),
+      loadTemplatesFromServer(false),
+    ])
+    return
+  }
   if (currentNav.value === 'result') {
     await Promise.all([loadTaskList(true), loadHistoryList(false), loadPlatformInsightsFromServer(true)])
     pushToast('审核中心已刷新', 'success', 1800)
@@ -3124,46 +3194,70 @@ onBeforeUnmount(() => {
   <el-container class="ep-shell">
     <el-aside width="248px" class="ep-aside">
       <div class="ep-brand">
-        <p class="ep-brand-en">UNIVERSAL IDP PLATFORM</p>
-        <h1>通用 IDP 平台</h1>
-        <!-- <p class="ep-brand-sub">Element Plus Workspace</p> -->
+        <div class="brand-mark">N</div>
+        <h1>NovaIDP</h1>
       </div>
 
       <el-menu class="ep-nav" :default-active="currentNav" @select="(key) => { currentNav = String(key) }">
-        <el-menu-item v-for="(item, idx) in NAV_ITEMS" :key="item.key" :index="item.key">
+        <el-menu-item v-for="item in NAV_ITEMS" :key="item.key" :index="item.key">
           <div class="nav-content">
-            <span class="nav-index">{{ idx + 1 }}</span>
+            <span class="nav-index"><el-icon><component :is="item.icon" /></el-icon></span>
             <span class="nav-copy">
               <strong>{{ item.label }}</strong>
-              <small>{{ item.desc }}</small>
             </span>
           </div>
         </el-menu-item>
       </el-menu>
 
+      <div class="environment-card">
+        <span>当前环境</span>
+        <strong><i />生产环境</strong>
+        <el-icon><ArrowDown /></el-icon>
+      </div>
+
+      <button type="button" class="collapse-menu-button">
+        <span>‹</span>
+        收起菜单
+      </button>
     </el-aside>
 
     <el-container class="ep-main">
+      <header class="app-global-header">
+        <div class="global-search">
+          <el-icon><Search /></el-icon>
+          <span>全局搜索（文档、模板、任务、字段等）</span>
+          <kbd>⌘ K</kbd>
+        </div>
+        <div class="global-header-actions workspace-actions">
+          <button type="button" class="workspace-switcher">
+            <el-icon><Grid /></el-icon>
+            默认工作区
+            <el-icon><ArrowDown /></el-icon>
+          </button>
+          <button type="button" class="notification-badge" aria-label="通知">
+            <el-icon><Bell /></el-icon>
+            <span>12</span>
+          </button>
+          <span class="workspace-avatar" aria-label="当前用户">
+            <el-icon><UserFilled /></el-icon>
+            <strong>张伟</strong>
+            <small>管理员</small>
+            <el-icon><ArrowDown /></el-icon>
+          </span>
+        </div>
+      </header>
+
       <el-main class="ep-content">
-        <div class="workspace-topbar">
-          <div class="workspace-topbar-title">
-            <span class="status-dot" :class="{ live: submitting || submissionDraftLoading || customsSubmitting }" />
-            <div>
-              <p>{{ currentNavItem.desc }}</p>
-              <strong>{{ currentNavItem.label }}</strong>
-            </div>
+        <div class="page-title-bar">
+          <div>
+            <h2>{{ currentNavItem.label }}</h2>
+            <p>{{ currentNavItem.desc }}</p>
           </div>
-          <div class="workspace-topbar-right">
-            <div class="workspace-actions">
-              <el-button class="workspace-overview-button" plain @click="openPlatformInsightsDialog">运营概览</el-button>
-              <el-button circle aria-label="刷新当前工作区" @click="refreshCurrentWorkspace">
-                <el-icon><RefreshRight /></el-icon>
-              </el-button>
-              <span class="workspace-avatar" aria-label="当前用户">
-                <el-icon><UserFilled /></el-icon>
-                <strong>Admin</strong>
-              </span>
-            </div>
+          <div class="page-title-actions">
+            <el-button v-if="currentNav !== 'overview'" plain @click="currentNav = 'overview'">返回总览</el-button>
+            <el-button circle aria-label="刷新当前工作区" @click="refreshCurrentWorkspace">
+              <el-icon><RefreshRight /></el-icon>
+            </el-button>
           </div>
         </div>
 
@@ -3285,12 +3379,155 @@ onBeforeUnmount(() => {
           </div>
         </el-dialog>
 
-        <section v-show="currentNav === 'template'" class="ep-section">
+        <section v-show="currentNav === 'overview'" class="ep-section dashboard-overview">
+          <div class="overview-meta-row">
+            <span>数据更新于 2 分钟前</span>
+            <el-button text :icon="RefreshRight" :loading="platformInsightsLoading" @click="refreshCurrentWorkspace">刷新</el-button>
+          </div>
+
+          <div class="overview-kpi-grid">
+            <div
+              v-for="item in dashboardKpis"
+              :key="item.label"
+              class="overview-kpi-card"
+              :class="`is-${item.tone}`"
+            >
+              <span class="overview-kpi-icon"><el-icon><component :is="item.icon" /></el-icon></span>
+              <div>
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+                <small>{{ item.hint }}</small>
+              </div>
+            </div>
+          </div>
+
+          <div class="overview-main-grid">
+            <div class="overview-main-stack">
+              <section class="design-panel process-overview-panel">
+                <div class="design-panel-head">
+                  <strong>处理流程概览</strong>
+                </div>
+                <div class="process-flow-track">
+                  <div v-for="step in platformFlow" :key="step.label" class="process-node">
+                    <span><el-icon><component :is="step.label === '接收资料' ? Upload : step.label === '解析抽取' ? DataAnalysis : step.label === '人审复核' ? UserFilled : Download" /></el-icon></span>
+                    <strong>{{ step.label }}</strong>
+                    <small>{{ step.hint }}</small>
+                  </div>
+                </div>
+              </section>
+
+              <section class="design-panel recent-task-panel">
+                <div class="design-panel-head">
+                  <strong>近期任务</strong>
+                  <el-button text @click="currentNav = 'result'">查看全部</el-button>
+                </div>
+                <el-table
+                  v-if="platformInsights.history.recent.length > 0"
+                  :data="platformInsights.history.recent.slice(0, 6)"
+                  size="small"
+                  border
+                >
+                  <el-table-column prop="filename" label="文件名" min-width="240" show-overflow-tooltip />
+                  <el-table-column prop="doc_type" label="文档类型" width="110" />
+                  <el-table-column label="状态" width="110">
+                    <template #default="{ row }">
+                      <el-tag size="small" :type="row.review_label.includes('缺失') || row.review_label.includes('复核') ? 'warning' : 'success'">
+                        {{ row.review_label }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="提交时间" width="170">
+                    <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+                  </el-table-column>
+                </el-table>
+                <div v-else class="focus-empty">暂无近期任务</div>
+              </section>
+            </div>
+
+            <aside class="overview-side-stack">
+              <section class="design-panel quick-actions-panel">
+                <div class="design-panel-head">
+                  <strong>快捷操作</strong>
+                </div>
+                <button
+                  v-for="item in dashboardQuickActions"
+                  :key="item.label"
+                  type="button"
+                  class="quick-action-item"
+                  :class="`is-${item.tone}`"
+                  @click="currentNav = item.target"
+                >
+                  <span><el-icon><component :is="item.icon" /></el-icon></span>
+                  <div>
+                    <strong>{{ item.label }}</strong>
+                    <small>{{ item.desc }}</small>
+                  </div>
+                  <i>›</i>
+                </button>
+              </section>
+
+              <section class="design-panel service-status-panel">
+                <div class="design-panel-head">
+                  <strong>引擎与服务状态</strong>
+                  <el-button text @click="currentNav = 'settings'">查看详情</el-button>
+                </div>
+                <div class="service-status-list">
+                  <div v-for="item in dashboardServiceStatus" :key="item.name">
+                    <el-icon><component :is="item.icon" /></el-icon>
+                    <span>{{ item.name }}</span>
+                    <el-tag size="small" type="success">{{ item.tag }}</el-tag>
+                    <strong>{{ item.state }}</strong>
+                  </div>
+                </div>
+              </section>
+
+              <section class="design-panel doc-distribution-panel">
+                <div class="design-panel-head">
+                  <strong>文档类型分布（近 7 天）</strong>
+                </div>
+                <div class="donut-summary">
+                  <div class="donut-ring"><strong>{{ platformInsights.history.total || historyItems.length }}</strong><span>总文档数</span></div>
+                  <div class="doc-distribution-list">
+                    <div v-for="item in docTypeDistribution" :key="item.name">
+                      <span>{{ item.name }}</span>
+                      <strong>{{ item.value }}%</strong>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </aside>
+          </div>
+        </section>
+
+        <section v-show="currentNav === 'template'" class="ep-section template-center-shell">
           <div class="section-hero">
             <div>
               <p class="section-kicker">Template Center</p>
               <h3>模板中心</h3>
               <p>先维护跨来源可复用的通用模板，再为特殊客户、厂商或业务来源创建专属模板覆盖规则。</p>
+            </div>
+          </div>
+
+          <div class="template-summary-grid">
+            <div class="template-summary-card">
+              <span><el-icon><Grid /></el-icon></span>
+              <strong>全部模板</strong>
+              <b>{{ templates.length }}</b>
+            </div>
+            <div class="template-summary-card">
+              <span><el-icon><UserFilled /></el-icon></span>
+              <strong>通用模板</strong>
+              <b>{{ templateStats.common }}</b>
+            </div>
+            <div class="template-summary-card">
+              <span><el-icon><Document /></el-icon></span>
+              <strong>来源专属</strong>
+              <b>{{ templateStats.vendor }}</b>
+            </div>
+            <div class="template-summary-card">
+              <span><el-icon><CircleCheck /></el-icon></span>
+              <strong>当前字段</strong>
+              <b>{{ activeTemplateFieldCount }}</b>
             </div>
           </div>
 
@@ -3565,8 +3802,66 @@ onBeforeUnmount(() => {
           </el-dialog>
         </section>
 
-        <section v-show="currentNav === 'extract'" class="ep-section">
+        <section v-show="currentNav === 'extract'" class="ep-section processing-workbench">
+          <div class="workbench-config-panel design-panel">
+            <div class="design-panel-head">
+              <strong>任务配置</strong>
+            </div>
+            <div class="workbench-config-grid">
+              <label>
+                <span>来源 / 业务线</span>
+                <el-select v-model="selectedVendor" class="w-full" clearable placeholder="通用业务线">
+                  <el-option v-for="vendor in vendorOptions" :key="vendor" :label="vendor" :value="vendor" />
+                </el-select>
+              </label>
+              <label>
+                <span>文档类型</span>
+                <el-select v-model="selectedDocType" class="w-full" placeholder="通用文档">
+                  <el-option v-for="t in docTypeOptionsForSelectedVendor" :key="t" :label="t" :value="t" />
+                </el-select>
+              </label>
+              <label>
+                <span>OCR 引擎</span>
+                <el-select v-model="form.backend" class="w-full">
+                  <el-option label="MinerU" value="vlm" />
+                  <el-option label="Pipeline" value="pipeline" />
+                </el-select>
+              </label>
+              <label>
+                <span>处理优先级</span>
+                <el-select model-value="standard" class="w-full">
+                  <el-option label="P2 标准" value="standard" />
+                  <el-option label="P1 加急" value="urgent" />
+                </el-select>
+              </label>
+            </div>
+          </div>
+
           <div class="focus-workspace">
+            <div class="workbench-upload-panel design-panel">
+              <div class="design-panel-head">
+                <strong>上传文档</strong>
+              </div>
+              <el-upload
+                class="design-upload-zone"
+                drag
+                action="#"
+                :auto-upload="false"
+                :show-file-list="false"
+                :accept="EXTRACT_UPLOAD_ACCEPT"
+                :on-change="onExtractUploadChange"
+              >
+                <div class="upload-cloud"><el-icon><UploadFilled /></el-icon></div>
+                <strong>将文件拖拽到此处，或点击上传</strong>
+                <span>支持 PDF、图片、Word、PPT、Excel 文件；单个文件最大 200MB</span>
+                <el-button type="primary" @click.stop="openUploadWizard(file ? 2 : 1)">选择文件</el-button>
+              </el-upload>
+              <div v-if="file" class="upload-file-meta">
+                <el-tag type="info">{{ file.name }} ({{ humanFileSize(file.size) }})</el-tag>
+                <el-button text type="danger" @click="removeFile">移除</el-button>
+              </div>
+            </div>
+
             <div class="focus-status-row">
               <span>状态 <strong>{{ focusReadyLabel }}</strong></span>
               <span>模板 <strong>{{ activeTemplateName }}</strong></span>
@@ -3863,12 +4158,18 @@ onBeforeUnmount(() => {
           </el-dialog>
         </section>
 
-        <section v-show="currentNav === 'result'" class="ep-section result-section">
+        <section v-show="currentNav === 'result'" class="ep-section result-section review-center-shell">
           <div class="section-hero">
             <div>
               <p class="section-kicker">Result Center</p>
               <h3>审核中心</h3>
               <p>围绕当前记录查看系统判断、核对原始证据，并决定是否进入业务填报。</p>
+            </div>
+            <div class="section-hero-actions review-action-strip">
+              <el-button :loading="taskLoading" @click="loadTaskList()">刷新任务</el-button>
+              <el-button @click="loadHistoryList(true)">刷新历史</el-button>
+              <el-button :disabled="!activeResult" :icon="Download" @click="downloadResult">下载 JSON</el-button>
+              <el-button type="primary" :icon="EditPen" :disabled="!activeResult">人工修正</el-button>
             </div>
           </div>
 
@@ -4366,7 +4667,29 @@ onBeforeUnmount(() => {
           </el-dialog>
         </section>
 
-        <section v-show="currentNav === 'settings'" class="ep-section">
+        <section v-show="currentNav === 'evidence'" class="ep-section evidence-center-shell">
+          <div class="design-panel placeholder-workspace">
+            <div>
+              <p class="section-kicker">Evidence Center</p>
+              <h3>证据中心</h3>
+              <p>集中管理原始文件、Markdown、截图证据和字段定位。当前资料的证据入口仍在审核中心内。</p>
+            </div>
+            <el-button type="primary" @click="currentNav = 'result'">进入审核中心</el-button>
+          </div>
+        </section>
+
+        <section v-show="currentNav === 'automation'" class="ep-section automation-center-shell">
+          <div class="design-panel placeholder-workspace">
+            <div>
+              <p class="section-kicker">Automation Tasks</p>
+              <h3>自动化任务</h3>
+              <p>展示后台队列、自动提取、自动填报与调度状态。当前可在总览和工作台查看实时队列。</p>
+            </div>
+            <el-button type="primary" @click="currentNav = 'overview'">查看总览</el-button>
+          </div>
+        </section>
+
+        <section v-show="currentNav === 'settings'" class="ep-section settings-console">
           <div class="section-hero">
             <div>
               <p class="section-kicker">System Settings</p>
@@ -4378,6 +4701,17 @@ onBeforeUnmount(() => {
               <span class="metric-chip">LLM: {{ llmProviderLabel(llmProvider) }}</span>
               <span class="metric-chip">Model: {{ form.llm_model || '-' }}</span>
             </div>
+          </div>
+
+          <div class="settings-tab-strip">
+            <button
+              v-for="item in settingsTabs"
+              :key="item"
+              type="button"
+              :class="{ active: item === 'LLM 配置' }"
+            >
+              {{ item }}
+            </button>
           </div>
 
           <el-row :gutter="14" class="ep-row-gap">

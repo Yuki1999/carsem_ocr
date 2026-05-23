@@ -6,9 +6,39 @@ const css = readFileSync(resolve(__dirname, '../../styles/style.css'), 'utf8')
 const appVue = readFileSync(resolve(__dirname, '../../App.vue'), 'utf8')
 
 describe('layout density CSS', () => {
+  it('matches the NovaIDP design shell with overview as the default entry', () => {
+    expect(appVue).toContain('NovaIDP')
+    expect(appVue).toContain("const currentNav = ref('overview')")
+    expect(appVue).toContain("key: 'overview', label: '总览'")
+    expect(appVue).toContain("key: 'extract', label: '处理工作台'")
+    expect(appVue).toContain("key: 'result', label: '审核中心'")
+    expect(appVue).toContain("key: 'template', label: '模板中心'")
+    expect(appVue).toContain("key: 'settings', label: '系统设置'")
+    expect(appVue).toContain('class="app-global-header"')
+    expect(appVue).toContain('class="global-search"')
+    expect(appVue).toContain('class="workspace-switcher"')
+    expect(appVue).toContain('class="notification-badge"')
+    expect(css).toContain('.app-global-header')
+    expect(css).toContain('.global-search')
+    expect(css).toContain('.workspace-switcher')
+  })
+
+  it('implements the design-specific page shells for core workflows', () => {
+    expect(appVue).toContain('dashboard-overview')
+    expect(appVue).toContain('processing-workbench')
+    expect(appVue).toContain('review-center-shell')
+    expect(appVue).toContain('template-center-shell')
+    expect(appVue).toContain('settings-console')
+    expect(css).toContain('.dashboard-overview')
+    expect(css).toContain('.processing-workbench')
+    expect(css).toContain('.review-center-shell')
+    expect(css).toContain('.template-center-shell')
+    expect(css).toContain('.settings-console')
+  })
+
   it('constrains workspace content instead of stretching every section edge to edge', () => {
     expect(css).toMatch(/\.ep-section\s*\{[^}]*max-width:/s)
-    expect(css).toMatch(/\.workspace-topbar\s*\{[^}]*max-width:/s)
+    expect(css).toMatch(/\.app-global-header\s*\{[^}]*max-width:/s)
   })
 
   it('uses explicit compact grids for focused workspaces', () => {
@@ -30,7 +60,7 @@ describe('layout density CSS', () => {
     expect(appVue).toContain('const submissionExtraFieldsVisible')
     expect(appVue).toContain('const visibleCustomsHeaderFields')
     expect(appVue).toContain('class="submission-more-toggle"')
-    expect(appVue).toContain('class="workspace-actions"')
+    expect(appVue).toContain('workspace-actions')
     expect(appVue).toContain('UserFilled')
   })
 
@@ -52,8 +82,6 @@ describe('layout density CSS', () => {
 
   it('keeps global chrome focused and moves operating metrics into a modal', () => {
     expect(appVue).toContain('const platformInsights')
-    expect(appVue).toContain("const currentNav = ref('extract')")
-    expect(appVue).not.toContain("key: 'overview'")
     expect(appVue).not.toContain('class="product-insight-strip"')
     expect(appVue).toContain('const platformInsightsDialogVisible')
     expect(appVue).toContain('class="platform-insights-dialog"')
@@ -66,7 +94,6 @@ describe('layout density CSS', () => {
     expect(appVue).toContain('class="focus-workspace"')
     expect(appVue).toContain('class="upload-wizard-dialog"')
     expect(appVue).toContain('class="upload-wizard-steps"')
-    expect(appVue).not.toContain("v-show=\"currentNav === 'overview'\"")
     expect(css).toContain('.focus-workspace')
     expect(css).toContain('.upload-wizard-dialog')
   })

@@ -16,8 +16,9 @@ describe('project structure', () => {
     const indexHtml = readFileSync(resolve(__dirname, '../index.html'), 'utf-8')
 
     expect(indexHtml).toContain('通用 IDP 智能文档处理平台')
-    expect(appVue).toContain('UNIVERSAL IDP PLATFORM')
-    expect(appVue).toContain('通用 IDP 平台')
+    expect(appVue).toContain('NovaIDP')
+    expect(appVue).toContain('智能文档处理总览')
+    expect(appVue).toContain('处理工作台')
     expect(appVue).not.toContain('物流单智能抽取')
     expect(appVue).not.toContain('CARSEM SEMICONDUCTOR')
   })
