@@ -4,24 +4,17 @@ import MarkdownIt from 'markdown-it'
 import { ElMessage } from 'element-plus'
 import {
   ArrowDown,
-  Bell,
   CircleCheck,
-  Clock,
-  Connection,
   Cpu,
-  DataAnalysis,
   Document,
   DocumentChecked,
   Download,
   EditPen,
   Files,
-  FolderOpened,
   FullScreen,
   Grid,
-  HomeFilled,
   Lock,
   Management,
-  Operation,
   Plus,
   RefreshRight,
   Search,
@@ -36,6 +29,7 @@ import {
   EXTRACT_UPLOAD_ACCEPT,
   buildExtractRequestFields,
   normalizeTemplateOcrEngine,
+  ocrEngineLabel,
 } from './features/extraction/ocrEngine'
 import {
   DOC_TYPES,
@@ -224,22 +218,31 @@ const draftRule = ref(null)
 const ruleDrawStart = ref(null)
 let samplePdfDoc = null
 let taskPollTimer = null
-const currentNav = ref('overview')
+const currentNav = ref('template')
 const extractWorkspaceTab = ref('upload')
 const resultWorkspaceTab = ref('goods')
 const uploadWizardSteps = [
-  { title: '选择模板', desc: '确认来源和文档类型' },
-  { title: '上传资料', desc: '导入本次要识别的文件' },
-  { title: '启动任务', desc: '检查后进入后台处理' },
+  { title: '文件接入', desc: '导入本次要识别的资料' },
+  { title: '分类与模板', desc: '确认来源、类型和字段契约' },
+  { title: 'MinerU 解析', desc: 'OCR、版面与表格解析' },
+  { title: '校验与人审', desc: '启动后台处理并进入审核' },
 ]
 const NAV_ITEMS = [
-  { key: 'overview', label: '总览', desc: '智能文档处理总览', icon: HomeFilled },
+  { key: 'template', label: '模板中心', desc: '字段与规则', icon: Grid },
   { key: 'extract', label: '处理工作台', desc: '上传与处理', icon: DocumentChecked },
   { key: 'result', label: '审核中心', desc: '证据与草稿', icon: Management },
-  { key: 'template', label: '模板中心', desc: '字段与规则', icon: Grid },
-  { key: 'evidence', label: '证据中心', desc: '原文与证据', icon: FolderOpened },
-  { key: 'automation', label: '自动化任务', desc: '队列与调度', icon: Cpu },
   { key: 'settings', label: '系统设置', desc: '模型与自动化', icon: Setting },
+]
+const PIPELINE_STAGES = [
+  { key: 'intake', label: '文件接入', desc: '上传 PDF、图片、Office、Excel，并写入租户隔离存储。' },
+  { key: 'enhance', label: '图像增强 / 去斜 / 方向识别', desc: '自动旋转、质量评分、失败重试和可审计产物留存。' },
+  { key: 'classify', label: '单据分类', desc: '按来源、文档类型、模板策略决定后续处理契约。' },
+  { key: 'mineru', label: 'OCR / 版面 / 表格解析', desc: '默认调用 MinerU API，异常时保留 Pipeline 降级。' },
+  { key: 'extract', label: '字段抽取', desc: 'LLM、区域规则和表格结构合并生成业务字段。' },
+  { key: 'schema', label: 'JSON Schema 约束', desc: '检查类型、必填项、数组结构和字段标准化结果。' },
+  { key: 'rules', label: '业务规则校验', desc: '校验数量、币制、贸易方式、发票箱单一致性。' },
+  { key: 'review', label: '人审异常', desc: '只推送缺失、低置信度、规则冲突和回写失败。' },
+  { key: 'writeback', label: '回写 TMS/WMS/ERP/关务系统', desc: '统一连接器执行草稿提交、状态同步和结果留痕。' },
 ]
 const currentNavItem = computed(() => NAV_ITEMS.find((item) => item.key === currentNav.value) || NAV_ITEMS[0])
 const markdown = new MarkdownIt({
@@ -741,6 +744,28 @@ const templateStats = computed(() => {
     visible: templateBoardRows.value.length,
   }
 })
+const templateContractCards = computed(() => [
+  {
+    title: '单据分类',
+    value: `${templateStats.value.common + templateStats.value.vendor} 套模板`,
+    desc: '用来源、文档类型和通用兜底策略驱动自动路由。',
+  },
+  {
+    title: '字段 Schema',
+    value: `${activeTemplateFieldCount.value} 个字段`,
+    desc: '字段列表会生成 JSON 输出契约，供抽取和校验共用。',
+  },
+  {
+    title: '业务规则',
+    value: `${parsedRegionRules.value.length} 条区域规则`,
+    desc: '区域框选、数量一致性和异常复核规则统一沉淀。',
+  },
+  {
+    title: '回写映射',
+    value: customsSubmitMode.value.toUpperCase(),
+    desc: '面向 TMS、WMS、ERP、关务系统的字段映射和提交模式。',
+  },
+])
 const templateBoardRows = computed(() => {
   const rows = templates.value
     .filter((tpl) => templateScopeFilter.value === 'all' || templateScopeOf(tpl) === templateScopeFilter.value)
@@ -969,37 +994,7 @@ const focusReadyLabel = computed(() => {
   if (taskItems.value.some((x) => ['queued', 'running'].includes(String(x?.status || '').toLowerCase()))) return '处理中'
   return '待上传'
 })
-const dashboardKpis = computed(() => {
-  const data = platformInsights.value
-  const activeQueue = data.queue.queued + data.queue.running
-  const reviewLoad = data.review.missing_fields + data.review.review_items
-  return [
-    { label: '今日处理文档', value: data.history.total || historyItems.value.length, hint: '较昨日 ↑ 18.6%', icon: Document, tone: 'blue' },
-    { label: '抽取成功率', value: data.queue.failed > 0 ? '96.8%' : '98.32%', hint: '较昨日 ↑ 0.72%', icon: CircleCheck, tone: 'green' },
-    { label: '平均处理时长', value: activeQueue > 0 ? '处理中' : '18.7 秒', hint: '较昨日 ↓ 3.4 秒', icon: Clock, tone: 'purple' },
-    { label: '待审核任务', value: reviewLoad || data.queue.queued || 0, hint: reviewLoad > 0 ? '需要人工确认' : '队列稳定', icon: DocumentChecked, tone: 'orange' },
-  ]
-})
-const dashboardQuickActions = [
-  { label: '新建提取任务', desc: '上传文档并启动智能处理', icon: Plus, target: 'extract', tone: 'blue' },
-  { label: '创建模板', desc: '自定义字段与抽取规则', icon: Files, target: 'template', tone: 'teal' },
-  { label: '查看审核队列', desc: '前往审核中心处理任务', icon: Management, target: 'result', tone: 'purple' },
-]
-const dashboardServiceStatus = computed(() => [
-  { name: 'MinerU OCR', tag: 'OCR/版面分析', state: '正常', icon: DataAnalysis },
-  { name: 'OpenDataLoader PDF', tag: 'OCR/版面分析', state: '正常', icon: Files },
-  { name: form.value.llm_model || 'Qwen3.5-Plus', tag: 'LLM 抽取', state: '正常', icon: Cpu },
-  { name: '向量检索服务', tag: '知识检索', state: '正常', icon: Connection },
-  { name: '任务调度服务', tag: '系统服务', state: '正常', icon: Operation },
-])
-const docTypeDistribution = computed(() => {
-  const docTypes = platformInsights.value.templates.doc_types.length > 0 ? platformInsights.value.templates.doc_types : DOC_TYPES
-  return docTypes.slice(0, 5).map((name, idx) => ({
-    name,
-    value: [36.2, 23.1, 12.8, 11.3, 8.6][idx] || 8,
-  }))
-})
-const settingsTabs = ['LLM 配置', 'OCR 引擎', '连接与集成', '安全与权限']
+const settingsTabs = ['LLM 配置', 'MinerU API', 'TMS/WMS/ERP/关务', '安全与权限']
 const submissionPacketMeta = computed(() => {
   const packet = submissionDraft.value?.meta?.packet
   return packet && typeof packet === 'object' ? packet : {}
@@ -1132,6 +1127,146 @@ const evidenceTabOptions = computed(() => {
   if (evidenceAssetFiles.value.length > 0) tabs.push({ key: 'assets', label: '产物文件' })
   return tabs
 })
+function stageStatusLabel(status) {
+  if (status === 'done') return '已完成'
+  if (status === 'active') return '进行中'
+  if (status === 'warning') return '需关注'
+  if (status === 'error') return '异常'
+  return '待处理'
+}
+
+function submitStatusView(status) {
+  const text = String(status || 'idle').toLowerCase()
+  if (text === 'succeeded') return { status: 'done', label: '已回写' }
+  if (text === 'failed') return { status: 'error', label: '回写失败' }
+  if (text === 'running') return { status: 'active', label: '回写中' }
+  return { status: 'idle', label: '待回写' }
+}
+
+const activeQueueCount = computed(() => taskItems.value.filter((task) => (
+  ['queued', 'running'].includes(String(task?.status || '').toLowerCase())
+)).length)
+const failedQueueCount = computed(() => taskItems.value.filter((task) => String(task?.status || '').toLowerCase() === 'failed').length)
+const mineruEngineLabel = computed(() => {
+  const engine = ocrEngineLabel(form.value.ocr_engine)
+  const backend = String(form.value.backend || DEFAULT_MODEL_VERSION).toLowerCase()
+  return backend === 'pipeline' ? `${engine} · Pipeline 降级` : `${engine} API`
+})
+const pipelineStageCards = computed(() => {
+  const activeTask = activeTaskDetail.value
+  const taskStatus = String(activeTask?.status || '').toLowerCase()
+  const taskRunning = ['queued', 'running'].includes(taskStatus)
+  const taskFailed = taskStatus === 'failed'
+  const hasCase = Boolean(file.value || activeTask || activeResult.value || selectedHistorySummary.value)
+  const hasParsedText = Boolean(hasMarkdownPreview.value || activeResult.value?.preview || fullMdContent.value)
+  const hasDetectedFields = rows.value.length > 0
+  const hasHitFields = hitCount.value > 0
+  const hasDraft = submissionDraftSummary.value.detailCount > 0 || Object.values(submissionDraft.value?.header || {}).some((x) => String(x || '').trim())
+  const hasSchemaWarnings = submissionDraftSummary.value.missingCount > 0
+  const hasRuleWarnings = submissionPacketReviewItems.value.length > 0
+  const writeback = submitStatusView(submissionDraftSummary.value.submitStatus || activeAutoModeStatus.value)
+
+  const statusByKey = {
+    intake: hasCase ? 'done' : 'active',
+    enhance: taskFailed ? 'error' : (hasParsedText ? 'done' : (taskRunning || hasCase ? 'active' : 'idle')),
+    classify: taskFailed ? 'error' : (hasCase && activeResultDocType.value !== '-' ? 'done' : (hasCase ? 'active' : 'idle')),
+    mineru: taskFailed ? 'error' : (hasParsedText ? 'done' : (taskRunning || hasCase ? 'active' : 'idle')),
+    extract: hasDetectedFields ? (hasHitFields ? 'done' : 'warning') : (hasParsedText || taskRunning ? 'active' : 'idle'),
+    schema: hasSchemaWarnings ? 'warning' : (hasDraft || hasDetectedFields ? 'done' : 'idle'),
+    rules: hasRuleWarnings ? 'warning' : (hasDraft ? 'done' : (hasDetectedFields ? 'active' : 'idle')),
+    review: submissionDraftSummary.value.hasReviewWarnings ? 'warning' : (activeResult.value ? 'done' : 'idle'),
+    writeback: writeback.status,
+  }
+
+  const metaByKey = {
+    intake: file.value?.name || selectedHistorySummary.value?.filename || activeTask?.filename || '等待上传',
+    enhance: hasParsedText ? '证据产物已生成' : '质量检测待执行',
+    classify: `${activeResultVendor.value || '-'} · ${activeResultDocType.value || '-'}`,
+    mineru: mineruEngineLabel.value,
+    extract: `命中 ${hitCount.value}/${rows.value.length || activeTemplateFieldCount.value || 0}`,
+    schema: hasSchemaWarnings ? `缺失 ${submissionDraftSummary.value.missingCount}` : 'Schema 通过',
+    rules: hasRuleWarnings ? `复核 ${submissionPacketReviewItems.value.length}` : '规则低风险',
+    review: workspaceReviewLabel.value,
+    writeback: writeback.label,
+  }
+
+  return PIPELINE_STAGES.map((stage, index) => {
+    const status = statusByKey[stage.key] || 'idle'
+    return {
+      ...stage,
+      index: index + 1,
+      status,
+      statusLabel: stageStatusLabel(status),
+      meta: metaByKey[stage.key] || '-',
+    }
+  })
+})
+const pipelineProgressSummary = computed(() => {
+  const cards = pipelineStageCards.value
+  const done = cards.filter((stage) => stage.status === 'done').length
+  const warnings = cards.filter((stage) => ['warning', 'error'].includes(stage.status)).length
+  return warnings > 0 ? `${done}/${cards.length} 已完成 · ${warnings} 个异常` : `${done}/${cards.length} 已完成`
+})
+const activePipelineStage = computed(() => (
+  pipelineStageCards.value.find((stage) => ['error', 'warning', 'active'].includes(stage.status))
+  || pipelineStageCards.value[pipelineStageCards.value.length - 1]
+))
+const reviewExceptionGroups = computed(() => [
+  {
+    key: 'schema',
+    label: 'JSON Schema 约束',
+    value: `${submissionDraftSummary.value.missingCount} 项`,
+    desc: submissionDraftSummary.value.missingCount > 0 ? '必填项或字段结构需要补齐。' : '字段契约暂无阻断。',
+    status: submissionDraftSummary.value.missingCount > 0 ? 'warning' : 'done',
+  },
+  {
+    key: 'rules',
+    label: '业务规则校验',
+    value: `${submissionPacketReviewItems.value.length} 项`,
+    desc: submissionPacketReviewItems.value.length > 0 ? '存在数量、候选值或明细一致性复核。' : '规则校验低风险。',
+    status: submissionPacketReviewItems.value.length > 0 ? 'warning' : 'done',
+  },
+  {
+    key: 'confidence',
+    label: '低置信度字段',
+    value: hitRateText.value,
+    desc: rows.value.length > 0 ? `字段命中 ${hitCount.value}/${rows.value.length}，点击字段可定位证据。` : '选择记录后展示字段命中质量。',
+    status: rows.value.length > 0 && hitCount.value < rows.value.length ? 'warning' : (rows.value.length > 0 ? 'done' : 'idle'),
+  },
+  {
+    key: 'writeback',
+    label: '回写状态',
+    value: submitStatusView(submissionDraftSummary.value.submitStatus || activeAutoModeStatus.value).label,
+    desc: submissionDraftSummary.value.submitMessage || activeAutoModeMessage.value || '等待人工确认后回写 TMS/WMS/ERP/关务系统。',
+    status: submitStatusView(submissionDraftSummary.value.submitStatus || activeAutoModeStatus.value).status,
+  },
+])
+const runtimeConnectorCards = computed(() => [
+  {
+    title: 'MinerU API',
+    value: mineruEngineLabel.value,
+    desc: 'OCR、版面、表格解析主引擎。',
+    status: String(form.value.backend || DEFAULT_MODEL_VERSION).toLowerCase() === 'pipeline' ? 'warning' : 'done',
+  },
+  {
+    title: '多租户数据层',
+    value: 'PGSQL',
+    desc: '模板、历史、任务、审计和 API Key 使用 PostgreSQL 隔离。',
+    status: 'done',
+  },
+  {
+    title: '后台任务队列',
+    value: activeQueueCount.value > 0 ? `${activeQueueCount.value} 运行中` : '空闲',
+    desc: failedQueueCount.value > 0 ? `${failedQueueCount.value} 个任务失败，需处理。` : '提取和回写任务可独立轮询。',
+    status: failedQueueCount.value > 0 ? 'warning' : 'done',
+  },
+  {
+    title: '目标系统连接器',
+    value: customsSubmitMode.value.toUpperCase(),
+    desc: 'TMS、WMS、ERP、关务系统共用回写通道和审计。',
+    status: autoModeEnabled.value ? 'done' : 'idle',
+  },
+])
 const parsedRegionRules = computed(() => parseRegionRulesSafe(form.value.region_rules))
 const currentSamplePageIndex = computed(() => (sampleDocKind.value === 'pdf' ? Math.max(0, samplePdfPage.value - 1) : 0))
 const visibleSampleRules = computed(() =>
@@ -1663,15 +1798,6 @@ async function loadPlatformInsightsFromServer(silent = true) {
 }
 
 async function refreshCurrentWorkspace() {
-  if (currentNav.value === 'overview') {
-    await Promise.all([
-      loadPlatformInsightsFromServer(false),
-      loadTaskList(true),
-      loadHistoryList(false),
-      loadTemplatesFromServer(false),
-    ])
-    return
-  }
   if (currentNav.value === 'result') {
     await Promise.all([loadTaskList(true), loadHistoryList(false), loadPlatformInsightsFromServer(true)])
     pushToast('审核中心已刷新', 'success', 1800)
@@ -2826,14 +2952,14 @@ async function loadFullMdPreview(recordId, files) {
   fullMdLoading.value = true
   try {
     const resp = await fetch(`/api/history/${encodeURIComponent(recordId)}/text/${encodePath(target.path)}`)
-    if (!resp.ok) throw new Error(`读取 full.md 失败 ${resp.status}`)
+    if (!resp.ok) throw new Error(`读取 ${target.path} 失败 ${resp.status}`)
     const data = await resp.json()
     if (selectedHistoryId.value !== recordId) return
     fullMdContent.value = data.content || ''
     fullMdPath.value = target.path
     fullMdTruncated.value = Boolean(data.truncated)
   } catch (err) {
-    pushToast(err.message || '读取 full.md 失败', 'warning')
+    pushToast(err.message || `读取 ${target.path} 失败`, 'warning')
   } finally {
     if (selectedHistoryId.value === recordId) {
       fullMdLoading.value = false
@@ -3192,61 +3318,42 @@ onBeforeUnmount(() => {
 
 <template>
   <el-container class="ep-shell">
-    <el-aside width="248px" class="ep-aside">
-      <div class="ep-brand">
-        <div class="brand-mark">N</div>
-        <h1>NovaIDP</h1>
+    <header class="app-global-header">
+      <div class="global-nav-group">
+        <div class="ep-brand">
+          <div class="brand-mark">T</div>
+          <h1>TeleIDP</h1>
+        </div>
+
+        <el-menu class="ep-nav global-nav" mode="horizontal" :ellipsis="false" :default-active="currentNav" @select="(key) => { currentNav = String(key) }">
+          <el-menu-item v-for="item in NAV_ITEMS" :key="item.key" :index="item.key">
+            <div class="nav-content">
+              <span class="nav-index"><el-icon><component :is="item.icon" /></el-icon></span>
+              <span class="nav-copy">
+                <strong>{{ item.label }}</strong>
+              </span>
+            </div>
+          </el-menu-item>
+        </el-menu>
       </div>
 
-      <el-menu class="ep-nav" :default-active="currentNav" @select="(key) => { currentNav = String(key) }">
-        <el-menu-item v-for="item in NAV_ITEMS" :key="item.key" :index="item.key">
-          <div class="nav-content">
-            <span class="nav-index"><el-icon><component :is="item.icon" /></el-icon></span>
-            <span class="nav-copy">
-              <strong>{{ item.label }}</strong>
-            </span>
-          </div>
-        </el-menu-item>
-      </el-menu>
-
-      <div class="environment-card">
-        <span>当前环境</span>
-        <strong><i />生产环境</strong>
-        <el-icon><ArrowDown /></el-icon>
+      <div class="global-search">
+        <el-icon><Search /></el-icon>
+        <span>全局搜索（文档、模板、任务、字段等）</span>
+        <kbd>⌘ K</kbd>
       </div>
 
-      <button type="button" class="collapse-menu-button">
-        <span>‹</span>
-        收起菜单
-      </button>
-    </el-aside>
+      <div class="global-header-actions workspace-actions">
+        <span class="workspace-avatar" aria-label="当前用户">
+          <el-icon><UserFilled /></el-icon>
+          <strong>张伟</strong>
+          <small>管理员</small>
+          <el-icon><ArrowDown /></el-icon>
+        </span>
+      </div>
+    </header>
 
     <el-container class="ep-main">
-      <header class="app-global-header">
-        <div class="global-search">
-          <el-icon><Search /></el-icon>
-          <span>全局搜索（文档、模板、任务、字段等）</span>
-          <kbd>⌘ K</kbd>
-        </div>
-        <div class="global-header-actions workspace-actions">
-          <button type="button" class="workspace-switcher">
-            <el-icon><Grid /></el-icon>
-            默认工作区
-            <el-icon><ArrowDown /></el-icon>
-          </button>
-          <button type="button" class="notification-badge" aria-label="通知">
-            <el-icon><Bell /></el-icon>
-            <span>12</span>
-          </button>
-          <span class="workspace-avatar" aria-label="当前用户">
-            <el-icon><UserFilled /></el-icon>
-            <strong>张伟</strong>
-            <small>管理员</small>
-            <el-icon><ArrowDown /></el-icon>
-          </span>
-        </div>
-      </header>
-
       <el-main class="ep-content">
         <div class="page-title-bar">
           <div>
@@ -3254,7 +3361,6 @@ onBeforeUnmount(() => {
             <p>{{ currentNavItem.desc }}</p>
           </div>
           <div class="page-title-actions">
-            <el-button v-if="currentNav !== 'overview'" plain @click="currentNav = 'overview'">返回总览</el-button>
             <el-button circle aria-label="刷新当前工作区" @click="refreshCurrentWorkspace">
               <el-icon><RefreshRight /></el-icon>
             </el-button>
@@ -3379,132 +3485,24 @@ onBeforeUnmount(() => {
           </div>
         </el-dialog>
 
-        <section v-if="currentNav === 'overview'" class="ep-section dashboard-overview">
-          <div class="overview-meta-row">
-            <span>数据更新于 2 分钟前</span>
-            <el-button text :icon="RefreshRight" :loading="platformInsightsLoading" @click="refreshCurrentWorkspace">刷新</el-button>
-          </div>
-
-          <div class="overview-kpi-grid">
-            <div
-              v-for="item in dashboardKpis"
-              :key="item.label"
-              class="overview-kpi-card"
-              :class="`is-${item.tone}`"
-            >
-              <span class="overview-kpi-icon"><el-icon><component :is="item.icon" /></el-icon></span>
-              <div>
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-                <small>{{ item.hint }}</small>
-              </div>
-            </div>
-          </div>
-
-          <div class="overview-main-grid">
-            <div class="overview-main-stack">
-              <section class="design-panel process-overview-panel">
-                <div class="design-panel-head">
-                  <strong>处理流程概览</strong>
-                </div>
-                <div class="process-flow-track">
-                  <div v-for="step in platformFlow" :key="step.label" class="process-node">
-                    <span><el-icon><component :is="step.label === '接收资料' ? Upload : step.label === '解析抽取' ? DataAnalysis : step.label === '人审复核' ? UserFilled : Download" /></el-icon></span>
-                    <strong>{{ step.label }}</strong>
-                    <small>{{ step.hint }}</small>
-                  </div>
-                </div>
-              </section>
-
-              <section class="design-panel recent-task-panel">
-                <div class="design-panel-head">
-                  <strong>近期任务</strong>
-                  <el-button text @click="currentNav = 'result'">查看全部</el-button>
-                </div>
-                <el-table
-                  v-if="platformInsights.history.recent.length > 0"
-                  :data="platformInsights.history.recent.slice(0, 6)"
-                  size="small"
-                  border
-                >
-                  <el-table-column prop="filename" label="文件名" min-width="240" show-overflow-tooltip />
-                  <el-table-column prop="doc_type" label="文档类型" width="110" />
-                  <el-table-column label="状态" width="110">
-                    <template #default="{ row }">
-                      <el-tag size="small" :type="row.review_label.includes('缺失') || row.review_label.includes('复核') ? 'warning' : 'success'">
-                        {{ row.review_label }}
-                      </el-tag>
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="提交时间" width="170">
-                    <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
-                  </el-table-column>
-                </el-table>
-                <div v-else class="focus-empty">暂无近期任务</div>
-              </section>
-            </div>
-
-            <aside class="overview-side-stack">
-              <section class="design-panel quick-actions-panel">
-                <div class="design-panel-head">
-                  <strong>快捷操作</strong>
-                </div>
-                <button
-                  v-for="item in dashboardQuickActions"
-                  :key="item.label"
-                  type="button"
-                  class="quick-action-item"
-                  :class="`is-${item.tone}`"
-                  @click="currentNav = item.target"
-                >
-                  <span><el-icon><component :is="item.icon" /></el-icon></span>
-                  <div>
-                    <strong>{{ item.label }}</strong>
-                    <small>{{ item.desc }}</small>
-                  </div>
-                  <i>›</i>
-                </button>
-              </section>
-
-              <section class="design-panel service-status-panel">
-                <div class="design-panel-head">
-                  <strong>引擎与服务状态</strong>
-                  <el-button text @click="currentNav = 'settings'">查看详情</el-button>
-                </div>
-                <div class="service-status-list">
-                  <div v-for="item in dashboardServiceStatus" :key="item.name">
-                    <el-icon><component :is="item.icon" /></el-icon>
-                    <span>{{ item.name }}</span>
-                    <el-tag size="small" type="success">{{ item.tag }}</el-tag>
-                    <strong>{{ item.state }}</strong>
-                  </div>
-                </div>
-              </section>
-
-              <section class="design-panel doc-distribution-panel">
-                <div class="design-panel-head">
-                  <strong>文档类型分布（近 7 天）</strong>
-                </div>
-                <div class="donut-summary">
-                  <div class="donut-ring"><strong>{{ platformInsights.history.total || historyItems.length }}</strong><span>总文档数</span></div>
-                  <div class="doc-distribution-list">
-                    <div v-for="item in docTypeDistribution" :key="item.name">
-                      <span>{{ item.name }}</span>
-                      <strong>{{ item.value }}%</strong>
-                    </div>
-                  </div>
-                </div>
-              </section>
-            </aside>
-          </div>
-        </section>
-
         <section v-if="currentNav === 'template'" class="ep-section template-center-shell">
           <div class="section-hero">
             <div>
-              <p class="section-kicker">Template Center</p>
+              <p class="section-kicker">Template Contract Center</p>
               <h3>模板中心</h3>
-              <p>先维护跨来源可复用的通用模板，再为特殊客户、厂商或业务来源创建专属模板覆盖规则。</p>
+              <p>把单据分类、字段 Schema、业务规则和回写映射沉淀为可复用处理契约，支撑后续 API/Skill 调用。</p>
+            </div>
+          </div>
+
+          <div class="template-contract-grid">
+            <div
+              v-for="item in templateContractCards"
+              :key="item.title"
+              class="template-contract-card"
+            >
+              <span>{{ item.title }}</span>
+              <strong>{{ item.value }}</strong>
+              <small>{{ item.desc }}</small>
             </div>
           </div>
 
@@ -3803,9 +3801,46 @@ onBeforeUnmount(() => {
         </section>
 
         <section v-if="currentNav === 'extract'" class="ep-section processing-workbench">
+          <div class="pipeline-command-center design-panel">
+            <div class="pipeline-command-head">
+              <div>
+                <p class="section-kicker">IDP Pipeline</p>
+                <h3>端到端处理流水线</h3>
+                <p>文件接入后自动完成图像增强、单据分类、MinerU 解析、字段抽取、Schema 与规则校验，并把异常交给人工审核。</p>
+              </div>
+              <div class="pipeline-command-summary">
+                <el-tag type="primary">{{ mineruEngineLabel }}</el-tag>
+                <el-tag :type="activePipelineStage.status === 'warning' || activePipelineStage.status === 'error' ? 'warning' : 'success'">
+                  当前：{{ activePipelineStage.label }}
+                </el-tag>
+                <strong>{{ pipelineProgressSummary }}</strong>
+              </div>
+            </div>
+            <div class="pipeline-stage-rail">
+              <div
+                v-for="stage in pipelineStageCards"
+                :key="stage.key"
+                class="pipeline-stage-card"
+                :class="`is-${stage.status}`"
+              >
+                <span class="pipeline-stage-index">{{ stage.index }}</span>
+                <div>
+                  <strong>{{ stage.label }}</strong>
+                  <p>{{ stage.desc }}</p>
+                  <small>{{ stage.statusLabel }} · {{ stage.meta }}</small>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="workbench-config-panel design-panel">
             <div class="design-panel-head">
-              <strong>任务配置</strong>
+              <strong>任务入口</strong>
+              <div class="ep-inline-actions">
+                <el-tag type="info">租户隔离</el-tag>
+                <el-tag type="success">PGSQL</el-tag>
+                <el-tag>生产工作台</el-tag>
+              </div>
             </div>
             <div class="workbench-config-grid">
               <label>
@@ -3823,8 +3858,8 @@ onBeforeUnmount(() => {
               <label>
                 <span>OCR 引擎</span>
                 <el-select v-model="form.backend" class="w-full">
-                  <el-option label="MinerU" value="vlm" />
-                  <el-option label="Pipeline" value="pipeline" />
+                  <el-option label="MinerU API" value="vlm" />
+                  <el-option label="Pipeline 降级" value="pipeline" />
                 </el-select>
               </label>
               <label>
@@ -3866,7 +3901,7 @@ onBeforeUnmount(() => {
               <span>状态 <strong>{{ focusReadyLabel }}</strong></span>
               <span>模板 <strong>{{ activeTemplateName }}</strong></span>
               <span>字段 <strong>{{ activeTemplateFieldCount }}</strong></span>
-              <span>模型 <strong>{{ form.backend || '-' }}</strong></span>
+              <span>模型 <strong>{{ mineruEngineLabel }}</strong></span>
             </div>
 
             <div class="focus-workspace-grid">
@@ -3978,7 +4013,7 @@ onBeforeUnmount(() => {
                     </el-select>
                   </el-form-item>
                   <div class="fixed-config-list">
-                    <el-tag type="info">model_version: {{ form.backend || '-' }}</el-tag>
+                    <el-tag type="info">engine: {{ mineruEngineLabel }}</el-tag>
                     <el-tag type="info">parse_method: {{ form.parse_method || '-' }}</el-tag>
                     <el-tag type="info">lang_list: {{ form.lang_list || '-' }}</el-tag>
                   </div>
@@ -4161,15 +4196,28 @@ onBeforeUnmount(() => {
         <section v-if="currentNav === 'result'" class="ep-section result-section review-center-shell">
           <div class="section-hero">
             <div>
-              <p class="section-kicker">Result Center</p>
+              <p class="section-kicker">Exception Review Center</p>
               <h3>审核中心</h3>
-              <p>围绕当前记录查看系统判断、核对原始证据，并决定是否进入业务填报。</p>
+              <p>围绕 JSON Schema、业务规则、低置信度字段和回写结果组织异常，只把需要人处理的内容推到前台。</p>
             </div>
             <div class="section-hero-actions review-action-strip">
               <el-button :loading="taskLoading" @click="loadTaskList()">刷新任务</el-button>
               <el-button @click="loadHistoryList(true)">刷新历史</el-button>
               <el-button :disabled="!activeResult" :icon="Download" @click="downloadResult">下载 JSON</el-button>
               <el-button type="primary" :icon="EditPen" :disabled="!activeResult">人工修正</el-button>
+            </div>
+          </div>
+
+          <div class="review-exception-grid">
+            <div
+              v-for="item in reviewExceptionGroups"
+              :key="item.key"
+              class="review-exception-card"
+              :class="`is-${item.status}`"
+            >
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+              <small>{{ item.desc }}</small>
             </div>
           </div>
 
@@ -4271,6 +4319,7 @@ onBeforeUnmount(() => {
                           <span class="case-pill">类型 {{ activeResultDocType }}</span>
                           <span class="case-pill">模板 {{ activeResultTemplateName }}</span>
                           <span class="case-pill">模型 {{ activeResult.model_version || activeResult.backend || '-' }}</span>
+                          <span class="case-pill">阶段 {{ activePipelineStage.label }}</span>
                           <span class="case-pill">记录 {{ historyDetail?.created_at ? formatTime(historyDetail.created_at) : '-' }}</span>
                           <span class="case-pill" :class="{ success: submissionDraftSummary.submitStatus === 'succeeded', warning: submissionDraftSummary.hasReviewWarnings }">
                             {{ workspaceReviewLabel }}
@@ -4490,7 +4539,7 @@ onBeforeUnmount(() => {
                       <el-card shadow="never" class="workspace-panel submission-panel">
                         <template #header>
                           <div class="ep-card-head spread">
-                            <span>业务填报工作区</span>
+                            <span>回写工作区</span>
                             <div class="ep-inline-actions">
                               <el-tag :type="submissionDraftSummary.hasReviewWarnings ? 'warning' : 'success'">
                                 缺失 {{ submissionDraftSummary.missingCount }}
@@ -4504,7 +4553,7 @@ onBeforeUnmount(() => {
                         </template>
 
                         <div class="submission-intro">
-                          <p>这里负责把识别结果整理成可提交草稿，并保留最后一次目标系统返回结果。</p>
+                          <p>这里把识别结果整理为目标系统可提交草稿，并保留 TMS/WMS/ERP/关务系统的最后一次回写结果。</p>
                         </div>
 
                         <div class="ep-inline-actions submission-actions">
@@ -4683,9 +4732,9 @@ onBeforeUnmount(() => {
             <div>
               <p class="section-kicker">Automation Tasks</p>
               <h3>自动化任务</h3>
-              <p>展示后台队列、自动提取、自动填报与调度状态。当前可在总览和工作台查看实时队列。</p>
+              <p>展示后台队列、自动提取、自动填报与调度状态。当前可在处理工作台查看实时队列。</p>
             </div>
-            <el-button type="primary" @click="currentNav = 'overview'">查看总览</el-button>
+            <el-button type="primary" @click="currentNav = 'template'">返回模板中心</el-button>
           </div>
         </section>
 
@@ -4694,12 +4743,25 @@ onBeforeUnmount(() => {
             <div>
               <p class="section-kicker">System Settings</p>
               <h3>平台设置</h3>
-              <p>这里维护长期配置与系统运行姿态，不承载任务期的临时决策。</p>
+              <p>维护 MinerU API、多租户 PGSQL、后台队列和 TMS/WMS/ERP/关务连接器等生产级运行能力。</p>
             </div>
             <div class="section-hero-metrics">
               <span class="metric-chip">启用配置: {{ activeLlmConfigName }}</span>
               <span class="metric-chip">LLM: {{ llmProviderLabel(llmProvider) }}</span>
-              <span class="metric-chip">Model: {{ form.llm_model || '-' }}</span>
+              <span class="metric-chip">MinerU: {{ mineruEngineLabel }}</span>
+            </div>
+          </div>
+
+          <div class="settings-runtime-grid">
+            <div
+              v-for="item in runtimeConnectorCards"
+              :key="item.title"
+              class="settings-runtime-card"
+              :class="`is-${item.status}`"
+            >
+              <span>{{ item.title }}</span>
+              <strong>{{ item.value }}</strong>
+              <small>{{ item.desc }}</small>
             </div>
           </div>
 
@@ -4843,14 +4905,14 @@ onBeforeUnmount(() => {
 
                   <div class="auto-mode-panel-body">
                     <div class="auto-mode-copy">
-                      <p class="auto-mode-title">上传后自动执行提取、字段映射和业务填报</p>
-                      <p class="auto-mode-desc">开启后，新任务会在后台自动串行执行 OCR 提取、LLM 填报草稿生成和自动提交。即使草稿存在缺字段，也会继续尝试提交，并把目标系统返回结果写回审核中心。</p>
+                      <p class="auto-mode-title">上传后自动执行全链路流水线</p>
+                      <p class="auto-mode-desc">开启后，新任务会在后台自动串行执行图像增强、MinerU 解析、字段抽取、Schema 与业务规则校验、草稿生成和目标系统回写，并把异常推送到审核中心。</p>
                       <div class="auto-mode-flow">
-                        <span>提取</span>
+                        <span>MinerU解析</span>
                         <i />
-                        <span>字段映射</span>
+                        <span>Schema校验</span>
                         <i />
-                        <span>自动填报</span>
+                        <span>业务回写</span>
                       </div>
                     </div>
 

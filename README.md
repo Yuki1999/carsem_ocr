@@ -1,4 +1,4 @@
-# 通用 IDP 智能文档处理平台 (Vite + Vue + FastAPI)
+# TeleIDP 智能文档处理平台 (Vite + Vue + FastAPI)
 
 ## 用户文档
 - [用户使用说明](./docs/user-guide.md)
@@ -13,6 +13,64 @@
 - `samples/`: 样例 PDF 文件
 
 ## 开发模式
+### 0) 准备 Python 环境
+项目已增加 `pyproject.toml`，后端依赖建议用 uv 管理：
+
+```bash
+uv sync
+cp .env.example .env
+```
+
+如果要启用 PostgreSQL 多租户能力，先准备数据库，并在 `.env` 中配置：
+
+```bash
+docker compose -f docker-compose.postgres.yml up -d
+DATABASE_URL=postgresql+psycopg://teleidp_app:teleidp_app@127.0.0.1:55432/teleidp
+MIGRATION_DATABASE_URL=postgresql+psycopg://teleidp_admin:teleidp_admin@127.0.0.1:55432/teleidp
+DEFAULT_TENANT_SLUG=default
+```
+
+初始数据库结构通过 Alembic 管理：
+
+```bash
+uv run alembic upgrade head
+```
+
+生产部署建议使用两个数据库角色：
+
+- `MIGRATION_DATABASE_URL`：迁移/DDL 账号，用于 Alembic。
+- `DATABASE_URL`：运行时应用账号，不应是 superuser 或表 owner，确保 PostgreSQL RLS 生效。
+
+导入当前文件存储数据到默认租户：
+
+```bash
+uv run python -m app.commands.import_legacy_output --project-root . --tenant default
+```
+
+创建给 Agent/skill 调用的 scoped API key：
+
+```bash
+uv run python -m app.commands.create_api_key \
+  --tenant default \
+  --name default-agent \
+  --scopes "documents:extract templates:read history:read"
+```
+
+Agent 调用需要同时传 Bearer key 和租户标识：
+
+```bash
+curl -H "Authorization: Bearer $TELEIDP_API_KEY" \
+  -H "X-Tenant-ID: default" \
+  http://127.0.0.1:16068/api/v1/agent/templates
+```
+
+确认迁移后，可在 `.env` 中逐步开启 DB-backed 存储和任务状态：
+
+```bash
+USE_DATABASE_STORES=true
+USE_DATABASE_JOBS=true
+```
+
 ### 1) 启动后端
 ```bash
 ./.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 16068 --reload
@@ -32,6 +90,8 @@ npm run dev
 
 ## 生产模式
 ```bash
+uv sync --frozen
+uv run alembic upgrade head
 cd frontend
 npm install
 npm run build
@@ -62,6 +122,7 @@ pm2 logs carsem-ocr-frontend
 
 ## API
 - `GET /api/health`
+- `GET /api/health/ready`
 - `GET /api/platform-insights`
 - `POST /api/extract`
 - `GET /api/history`
@@ -69,6 +130,11 @@ pm2 logs carsem-ocr-frontend
 - `GET /api/history/{record_id}/download`
 - `GET /api/history/{record_id}/asset/{file_path}`
 - `GET /api/history/{record_id}/text/{file_path}`
+- `POST /api/v1/agent/extractions`
+- `GET /api/v1/agent/extractions/{job_id}`
+- `GET /api/v1/agent/templates`
+- `GET /api/v1/agent/history`
+- `GET /api/v1/agent/history/{record_id}`
 
 ## 两阶段 Pipeline
 `/api/extract` 默认按以下顺序执行：
@@ -164,3 +230,11 @@ export MINERU_API_TOKEN="官网申请的token"
   - MinerU 解析结果压缩包（`result.zip`）
   - 解压后的文件目录（`unzipped/`）
 - 前端“审核中心”可查看历史记录、查看解压文件内容、下载压缩包。
+
+## 多租户与 PostgreSQL 规划
+- 平台目标形态是共享 PostgreSQL 数据库 + `tenant_id` 隔离 + PostgreSQL RLS 兜底。
+- 当前已建立配置、SQLAlchemy 模型、Alembic/RLS 迁移、API key 哈希、租户上下文、legacy 导入命令、DB-backed repositories 和 readiness 检查。
+- 现有业务接口默认仍使用文件存储；设置 `USE_DATABASE_STORES=true` 后，模板、LLM 设置和历史记录会走 PostgreSQL repository。
+- 设置 `USE_DATABASE_JOBS=true` 后，提取/报关任务状态会写入 PostgreSQL，避免只依赖进程内任务字典。
+- Agent/skill 调用走独立的 `/api/v1/agent/...` API，并通过租户、API key、scope、审计和幂等键控制访问。
+- 生产备份需要同时覆盖 PostgreSQL 和 `LOCAL_ASSET_ROOT` 指向的资产目录；后续可将该目录替换为 S3/MinIO/OSS 兼容对象存储。

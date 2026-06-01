@@ -1,0 +1,10 @@
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'teleidp_app') THEN
+    CREATE ROLE teleidp_app LOGIN PASSWORD 'teleidp_app' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
+  END IF;
+END
+$$;
+
+GRANT CONNECT ON DATABASE teleidp TO teleidp_app;
+GRANT USAGE ON SCHEMA public TO teleidp_app;

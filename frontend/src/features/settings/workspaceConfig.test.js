@@ -23,7 +23,7 @@ describe('workspaceConfig helpers', () => {
     expect(buildVendorOptions([{ vendor: '通用模板' }, { vendor: 'A' }])).toEqual(['A'])
   })
 
-  it('starts extraction workspace with no vendor selected and fixed qwen engine', () => {
+  it('starts extraction workspace with no vendor selected and fixed MinerU engine', () => {
     expect(createInitialWorkspaceSelection(['到货单', '发票'])).toEqual({
       vendor: '',
       docType: '',

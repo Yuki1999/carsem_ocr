@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import io
 import json
 import os
@@ -7,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -15,7 +17,17 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 
+from ..config import get_settings
+from ..db.session import create_engine_from_settings, get_session_factory, session_scope, set_current_tenant
+from ..repositories.history import HistoryRepository
+from ..repositories.jobs import JobRepository, customs_job_to_payload, extraction_job_to_payload
+from ..repositories.llm_settings import LlmSettingsRepository
+from ..repositories.templates import TemplateRepository
+from ..repositories.tenants import get_or_create_tenant
+from ..storage.assets import LocalAssetStorage
+from .agent import router as agent_router, set_extraction_enqueue_callback
 from ..store.history_store import (
     save_history_record,
     list_history_records,
@@ -55,6 +67,7 @@ from ..services.spatial_extract import parse_region_rules, extract_fields_by_reg
 from ..services.text_extract import extract_kv_fields
 
 app = FastAPI()
+app.include_router(agent_router, prefix="/api/v1/agent")
 
 FIXED_MINERU_API_TOKEN = "eyJ0eXBlIjoiSldUIiwiYWxnIjoiSFM1MTIifQ.eyJqdGkiOiI3MjAwNjY1OCIsInJvbCI6IlJPTEVfUkVHSVNURVIiLCJpc3MiOiJPcGVuWExhYiIsImlhdCI6MTc3MjYwOTM3MSwiY2xpZW50SWQiOiJsa3pkeDU3bnZ5MjJqa3BxOXgydyIsInBob25lIjoiMTMzNzIxNzc0MjAiLCJvcGVuSWQiOm51bGwsInV1aWQiOiI5YzQ5YThiMi1iMTliLTRlMzYtYmIzMS05MGRiYTQxMTdlMjYiLCJlbWFpbCI6IiIsImV4cCI6MTc4MDM4NTM3MX0.shcTkrDG_GTPlPzPM_lqmmdVT4nPJE4OqE6-XLXA2uNQ8F-MpNvO2KA926FNdTJz6-ZN2UsYRhAugPL2h7zw8Q"
 DEFAULT_MINERU_MODEL_VERSION = "vlm"
@@ -90,10 +103,182 @@ dist_assets_dir = dist_dir / "assets"
 if dist_assets_dir.exists():
     app.mount("/assets", StaticFiles(directory=str(dist_assets_dir)), name="assets")
 
+_file_save_history_record = save_history_record
+_file_list_history_records = list_history_records
+_file_load_history_record = load_history_record
+_file_update_history_record_response = update_history_record_response
+_file_get_history_zip_path = get_history_zip_path
+_file_get_history_asset_path = get_history_asset_path
+_file_read_history_text_file = read_history_text_file
+_file_delete_history_record = delete_history_record
+_file_load_llm_settings = load_llm_settings
+_file_save_llm_settings = save_llm_settings
+_file_load_templates = load_templates
+_file_save_templates = save_templates
+_file_reset_templates = reset_templates
+
+
+def _database_stores_enabled() -> bool:
+    return bool(get_settings().use_database_stores)
+
+
+def _database_jobs_enabled() -> bool:
+    return bool(get_settings().use_database_jobs)
+
+
+@contextmanager
+def _tenant_repository_session():
+    settings = get_settings()
+    factory = get_session_factory()
+    with session_scope(factory) as session:
+        tenant = get_or_create_tenant(session, settings.default_tenant_slug, name=settings.default_tenant_slug)
+        set_current_tenant(session, str(tenant.id))
+        yield session, str(tenant.id)
+
+
+def _local_asset_storage() -> LocalAssetStorage:
+    configured = Path(get_settings().local_asset_root)
+    root = configured if configured.is_absolute() else project_root / configured
+    return LocalAssetStorage(root)
+
+
+def load_templates(project_root: Path) -> list[dict[str, Any]]:
+    if not _database_stores_enabled():
+        return _file_load_templates(project_root=project_root)
+    with _tenant_repository_session() as (session, tenant_id):
+        return TemplateRepository(session).list_templates(tenant_id)
+
+
+def save_templates(project_root: Path, payload: Any) -> list[dict[str, Any]]:
+    if not _database_stores_enabled():
+        return _file_save_templates(project_root=project_root, payload=payload)
+    with _tenant_repository_session() as (session, tenant_id):
+        return TemplateRepository(session).replace_templates(tenant_id, payload)
+
+
+def reset_templates(project_root: Path) -> list[dict[str, Any]]:
+    if not _database_stores_enabled():
+        return _file_reset_templates(project_root=project_root)
+    with _tenant_repository_session() as (session, tenant_id):
+        return TemplateRepository(session).reset_templates(tenant_id)
+
+
+def load_llm_settings(project_root: Path) -> dict[str, Any]:
+    if not _database_stores_enabled():
+        return _file_load_llm_settings(project_root=project_root)
+    with _tenant_repository_session() as (session, tenant_id):
+        return LlmSettingsRepository(session).load_settings(tenant_id)
+
+
+def save_llm_settings(project_root: Path, payload: Any) -> dict[str, Any]:
+    if not _database_stores_enabled():
+        return _file_save_llm_settings(project_root=project_root, payload=payload)
+    with _tenant_repository_session() as (session, tenant_id):
+        return LlmSettingsRepository(session).save_settings(tenant_id, payload)
+
+
+def save_history_record(
+    project_root: Path,
+    response_payload: dict[str, Any],
+    zip_bytes: bytes | None,
+    extra_assets: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if not _database_stores_enabled():
+        return _file_save_history_record(
+            project_root=project_root,
+            response_payload=response_payload,
+            zip_bytes=zip_bytes,
+            extra_assets=extra_assets,
+        )
+    with _tenant_repository_session() as (session, tenant_id):
+        return HistoryRepository(session, _local_asset_storage()).save_history_record(
+            tenant_id=tenant_id,
+            response_payload=response_payload,
+            zip_bytes=zip_bytes,
+            extra_assets=extra_assets,
+        )
+
+
+def list_history_records(project_root: Path, limit: int = 50) -> list[dict[str, Any]]:
+    if not _database_stores_enabled():
+        return _file_list_history_records(project_root=project_root, limit=limit)
+    with _tenant_repository_session() as (session, tenant_id):
+        return HistoryRepository(session, _local_asset_storage()).list_history_records(tenant_id, limit=limit)
+
+
+def load_history_record(project_root: Path, record_id: str) -> dict[str, Any] | None:
+    if not _database_stores_enabled():
+        return _file_load_history_record(project_root=project_root, record_id=record_id)
+    with _tenant_repository_session() as (session, tenant_id):
+        return HistoryRepository(session, _local_asset_storage()).load_history_record(tenant_id, record_id)
+
+
+def update_history_record_response(
+    project_root: Path,
+    record_id: str,
+    response_payload: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not _database_stores_enabled():
+        return _file_update_history_record_response(
+            project_root=project_root,
+            record_id=record_id,
+            response_payload=response_payload,
+        )
+    with _tenant_repository_session() as (session, tenant_id):
+        return HistoryRepository(session, _local_asset_storage()).update_history_record_response(
+            tenant_id,
+            record_id,
+            response_payload,
+        )
+
+
+def get_history_zip_path(project_root: Path, record_id: str) -> Path | None:
+    if not _database_stores_enabled():
+        return _file_get_history_zip_path(project_root=project_root, record_id=record_id)
+    with _tenant_repository_session() as (session, tenant_id):
+        return HistoryRepository(session, _local_asset_storage()).get_history_zip_path(tenant_id, record_id)
+
+
+def get_history_asset_path(project_root: Path, record_id: str, file_path: str) -> Path | None:
+    if not _database_stores_enabled():
+        return _file_get_history_asset_path(project_root=project_root, record_id=record_id, file_path=file_path)
+    with _tenant_repository_session() as (session, tenant_id):
+        return HistoryRepository(session, _local_asset_storage()).get_history_asset_path(tenant_id, record_id, file_path)
+
+
+def read_history_text_file(project_root: Path, record_id: str, file_path: str) -> dict[str, Any] | None:
+    if not _database_stores_enabled():
+        return _file_read_history_text_file(project_root=project_root, record_id=record_id, file_path=file_path)
+    with _tenant_repository_session() as (session, tenant_id):
+        return HistoryRepository(session, _local_asset_storage()).read_history_text_file(tenant_id, record_id, file_path)
+
+
+def delete_history_record(project_root: Path, record_id: str) -> bool:
+    if not _database_stores_enabled():
+        return _file_delete_history_record(project_root=project_root, record_id=record_id)
+    with _tenant_repository_session() as (session, tenant_id):
+        return HistoryRepository(session, _local_asset_storage()).delete_history_record(tenant_id, record_id)
+
 
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/health/ready")
+async def readiness():
+    settings = get_settings()
+    checks = {"database": "disabled", "asset_storage": "ok"}
+    if settings.use_database_stores or settings.use_database_jobs or settings.environment.strip().lower() == "production":
+        try:
+            engine = create_engine_from_settings(settings)
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            checks["database"] = "ok"
+        except Exception as exc:
+            checks["database"] = f"failed: {str(exc)[:160]}"
+            return JSONResponse({"status": "not_ready", "checks": checks}, status_code=503)
+    return {"status": "ready", "checks": checks}
 
 
 @app.get("/api/llm-settings")
@@ -154,21 +339,43 @@ def _utc_now_iso() -> str:
 
 
 async def _update_extract_task(task_id: str, **updates) -> None:
+    if _database_jobs_enabled():
+        with _tenant_repository_session() as (session, tenant_id):
+            JobRepository(session).update_extraction_job(tenant_id, task_id, updates)
+        return
     async with _EXTRACT_TASKS_LOCK:
         task = _EXTRACT_TASKS.get(task_id)
         if not task:
+            task = None
+        if task:
+            task.update(updates)
+            task["updated_at"] = _utc_now_iso()
             return
-        task.update(updates)
-        task["updated_at"] = _utc_now_iso()
+    try:
+        with _tenant_repository_session() as (session, tenant_id):
+            JobRepository(session).update_extraction_job(tenant_id, task_id, updates)
+    except Exception:
+        return
 
 
 async def _update_customs_submit_task(task_id: str, **updates) -> None:
+    if _database_jobs_enabled():
+        with _tenant_repository_session() as (session, tenant_id):
+            JobRepository(session).update_customs_submit_job(tenant_id, task_id, updates)
+        return
     async with _CUSTOMS_SUBMIT_TASKS_LOCK:
         task = _CUSTOMS_SUBMIT_TASKS.get(task_id)
         if not task:
+            task = None
+        if task:
+            task.update(updates)
+            task["updated_at"] = _utc_now_iso()
             return
-        task.update(updates)
-        task["updated_at"] = _utc_now_iso()
+    try:
+        with _tenant_repository_session() as (session, tenant_id):
+            JobRepository(session).update_customs_submit_job(tenant_id, task_id, updates)
+    except Exception:
+        return
 
 
 def _prune_extract_tasks_unlocked() -> None:
@@ -325,10 +532,16 @@ def _safe_load_history_detail(record_id: Any) -> dict[str, Any] | None:
 
 
 async def _build_platform_insights_payload() -> dict[str, Any]:
-    async with _EXTRACT_TASKS_LOCK:
-        extract_tasks = list(_EXTRACT_TASKS.values())
-    async with _CUSTOMS_SUBMIT_TASKS_LOCK:
-        customs_tasks = list(_CUSTOMS_SUBMIT_TASKS.values())
+    if _database_jobs_enabled():
+        with _tenant_repository_session() as (session, tenant_id):
+            job_repo = JobRepository(session)
+            extract_tasks = [extraction_job_to_payload(row) for row in job_repo.list_extraction_jobs(tenant_id, limit=200)]
+            customs_tasks = [customs_job_to_payload(row) for row in job_repo.list_customs_submit_jobs(tenant_id, limit=200)]
+    else:
+        async with _EXTRACT_TASKS_LOCK:
+            extract_tasks = list(_EXTRACT_TASKS.values())
+        async with _CUSTOMS_SUBMIT_TASKS_LOCK:
+            customs_tasks = list(_CUSTOMS_SUBMIT_TASKS.values())
     queue = {"queued": 0, "running": 0, "failed": 0, "succeeded": 0}
     for task in [*extract_tasks, *customs_tasks]:
         status = str(task.get("status") if isinstance(task, dict) else "").strip().lower()
@@ -1043,6 +1256,42 @@ async def _run_extract_task(task_id: str, task_input: dict[str, Any]) -> None:
         )
 
 
+async def _enqueue_agent_extraction_task(task_id: str, payload: dict[str, Any]) -> None:
+    file_name = str(payload.get("filename") or payload.get("file_name") or "").strip()
+    if not file_name:
+        raise ValueError("filename is required")
+    encoded = str(payload.get("file_base64") or payload.get("content_base64") or "").strip()
+    if not encoded:
+        raise ValueError("file_base64 is required")
+    try:
+        file_bytes = base64.b64decode(encoded, validate=True)
+    except Exception as exc:
+        raise ValueError("file_base64 is invalid") from exc
+    if not file_bytes:
+        raise ValueError("decoded file is empty")
+    task_input = {
+        "file_name": file_name,
+        "file_bytes": file_bytes,
+        "vendor": str(payload.get("vendor") or "").strip(),
+        "doc_type": str(payload.get("doc_type") or "").strip(),
+        "fields": str(payload.get("fields") or ""),
+        "region_rules": str(payload.get("region_rules") or ""),
+        "llm_prompt": str(payload.get("llm_prompt") or ""),
+        "llm_base_url": str(payload.get("llm_base_url") or ""),
+        "llm_model": str(payload.get("llm_model") or ""),
+        "llm_api_key": str(payload.get("llm_api_key") or ""),
+        "mineru_model_version": str(payload.get("mineru_model_version") or "vlm"),
+        "backend": str(payload.get("backend") or "vlm"),
+        "parse_method": str(payload.get("parse_method") or "auto"),
+        "lang_list": str(payload.get("lang_list") or "ch"),
+        "ocr_engine": str(payload.get("ocr_engine") or DEFAULT_OCR_ENGINE),
+    }
+    asyncio.create_task(_run_extract_task(task_id, task_input))
+
+
+set_extraction_enqueue_callback(_enqueue_agent_extraction_task)
+
+
 @app.post("/api/extract/submit")
 async def extract_submit_api(
     file: UploadFile = File(...),
@@ -1067,25 +1316,7 @@ async def extract_submit_api(
     if not file_bytes:
         raise HTTPException(status_code=400, detail="上传文件为空")
 
-    task_id = uuid.uuid4().hex
     now = _utc_now_iso()
-    async with _EXTRACT_TASKS_LOCK:
-        _EXTRACT_TASKS[task_id] = {
-            "id": task_id,
-            "status": "queued",
-            "stage": "queued",
-            "progress": 0,
-            "message": "等待调度",
-            "error": "",
-            "created_at": now,
-            "updated_at": now,
-            "filename": file_name,
-            "vendor": str(vendor or "").strip(),
-            "doc_type": str(doc_type or "").strip(),
-            "result": None,
-        }
-        _prune_extract_tasks_unlocked()
-
     task_input = {
         "file_name": file_name,
         "file_bytes": file_bytes,
@@ -1103,12 +1334,43 @@ async def extract_submit_api(
         "lang_list": lang_list,
         "ocr_engine": ocr_engine,
     }
+    if _database_jobs_enabled():
+        request_payload = {key: value for key, value in task_input.items() if key != "file_bytes"}
+        request_payload["file_size"] = len(file_bytes)
+        with _tenant_repository_session() as (session, tenant_id):
+            job = JobRepository(session).create_extraction_job(
+                tenant_id=tenant_id,
+                request_payload=request_payload,
+            )
+            task_id = job.id.hex
+    else:
+        task_id = uuid.uuid4().hex
+        async with _EXTRACT_TASKS_LOCK:
+            _EXTRACT_TASKS[task_id] = {
+                "id": task_id,
+                "status": "queued",
+                "stage": "queued",
+                "progress": 0,
+                "message": "等待调度",
+                "error": "",
+                "created_at": now,
+                "updated_at": now,
+                "filename": file_name,
+                "vendor": str(vendor or "").strip(),
+                "doc_type": str(doc_type or "").strip(),
+                "result": None,
+            }
+            _prune_extract_tasks_unlocked()
     asyncio.create_task(_run_extract_task(task_id, task_input))
     return JSONResponse({"task_id": task_id, "status": "queued", "created_at": now})
 
 
 @app.get("/api/extract/tasks")
 async def extract_tasks_api(limit: int = Query(default=80, ge=1, le=200)):
+    if _database_jobs_enabled():
+        with _tenant_repository_session() as (session, tenant_id):
+            items = [extraction_job_to_payload(row) for row in JobRepository(session).list_extraction_jobs(tenant_id, limit=limit)]
+        return JSONResponse({"items": items})
     async with _EXTRACT_TASKS_LOCK:
         items = list(_EXTRACT_TASKS.values())
     items.sort(key=lambda x: str(x.get("updated_at") or x.get("created_at") or ""), reverse=True)
@@ -1117,6 +1379,12 @@ async def extract_tasks_api(limit: int = Query(default=80, ge=1, le=200)):
 
 @app.get("/api/extract/tasks/{task_id}")
 async def extract_task_detail_api(task_id: str):
+    if _database_jobs_enabled():
+        with _tenant_repository_session() as (session, tenant_id):
+            task = JobRepository(session).get_extraction_job(tenant_id, task_id)
+            if not task:
+                raise HTTPException(status_code=404, detail="任务不存在")
+            return JSONResponse(extraction_job_to_payload(task))
     async with _EXTRACT_TASKS_LOCK:
         task = _EXTRACT_TASKS.get(task_id)
     if not task:
@@ -1598,23 +1866,31 @@ async def submit_customs_api(record_id: str):
         settings = {}
     customs_submit_mode = str(settings.get("customs_submit_mode") or "http").strip().lower() if isinstance(settings, dict) else "http"
 
-    task_id = uuid.uuid4().hex
     now = _utc_now_iso()
-    async with _CUSTOMS_SUBMIT_TASKS_LOCK:
-        _CUSTOMS_SUBMIT_TASKS[task_id] = {
-            "id": task_id,
-            "record_id": record_id,
-            "status": "queued",
-            "stage": "queued",
-            "progress": 0,
-            "message": "等待提交",
-            "error": "",
-            "created_at": now,
-            "updated_at": now,
-            "submit_engine": customs_submit_mode,
-            "result": None,
-        }
-        _prune_customs_submit_tasks_unlocked()
+    if _database_jobs_enabled():
+        with _tenant_repository_session() as (session, tenant_id):
+            job = JobRepository(session).create_customs_submit_job(
+                tenant_id=tenant_id,
+                submit_engine=customs_submit_mode,
+            )
+            task_id = job.id.hex
+    else:
+        task_id = uuid.uuid4().hex
+        async with _CUSTOMS_SUBMIT_TASKS_LOCK:
+            _CUSTOMS_SUBMIT_TASKS[task_id] = {
+                "id": task_id,
+                "record_id": record_id,
+                "status": "queued",
+                "stage": "queued",
+                "progress": 0,
+                "message": "等待提交",
+                "error": "",
+                "created_at": now,
+                "updated_at": now,
+                "submit_engine": customs_submit_mode,
+                "result": None,
+            }
+            _prune_customs_submit_tasks_unlocked()
 
     asyncio.create_task(_run_customs_submit_task(task_id, record_id, validation["draft"]))
 
@@ -1627,6 +1903,10 @@ async def submit_customs_api(record_id: str):
 
 @app.get("/api/customs-submit/tasks")
 async def customs_submit_tasks_api(limit: int = Query(default=80, ge=1, le=200)):
+    if _database_jobs_enabled():
+        with _tenant_repository_session() as (session, tenant_id):
+            items = [customs_job_to_payload(row) for row in JobRepository(session).list_customs_submit_jobs(tenant_id, limit=limit)]
+        return JSONResponse({"items": items})
     async with _CUSTOMS_SUBMIT_TASKS_LOCK:
         items = list(_CUSTOMS_SUBMIT_TASKS.values())
     items.sort(key=lambda x: str(x.get("updated_at") or x.get("created_at") or ""), reverse=True)
@@ -1635,6 +1915,12 @@ async def customs_submit_tasks_api(limit: int = Query(default=80, ge=1, le=200))
 
 @app.get("/api/customs-submit/tasks/{task_id}")
 async def customs_submit_task_detail_api(task_id: str):
+    if _database_jobs_enabled():
+        with _tenant_repository_session() as (session, tenant_id):
+            task = JobRepository(session).get_customs_submit_job(tenant_id, task_id)
+            if not task:
+                raise HTTPException(status_code=404, detail="任务不存在")
+            return JSONResponse(customs_job_to_payload(task))
     async with _CUSTOMS_SUBMIT_TASKS_LOCK:
         task = _CUSTOMS_SUBMIT_TASKS.get(task_id)
     if not task:

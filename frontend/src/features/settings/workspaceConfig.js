@@ -1,4 +1,4 @@
-export const FIXED_WORKSPACE_OCR_ENGINE = 'qwen_vision'
+export const FIXED_WORKSPACE_OCR_ENGINE = 'mineru'
 export const DOC_TYPES = ['到货单', '物流通知书', '送货单', '发票', '报关单']
 export const COMMON_TEMPLATE_VENDOR = '通用模板'
 
